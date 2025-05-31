@@ -1,0 +1,75 @@
+use serde::{Deserialize, Serialize};
+
+pub type Prompt = ContextPart;
+pub type Response = ContextPart;
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContextPart {
+    data:Vec<ContextData>,
+    position:ContextPosition
+}
+
+impl ContextPart {
+    pub fn new(data:Vec<ContextData>, position:ContextPosition) -> ContextPart {
+        ContextPart { data, position }
+    }
+    pub fn get_data(&self) -> &Vec<ContextData> {
+        &self.data
+    }
+    pub fn get_position(&self) -> &ContextPosition {
+        &self.position
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ContextPosition {
+    System,
+    User,
+    AI,
+    Total,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ContextData {
+    Text(String),
+    Image(usize),
+}
+
+impl ContextData {
+    pub fn get_text(&self) -> String {
+        match self {
+            Self::Text(txt) => txt.clone(),
+            _ => panic!("Not text when it should be !")
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WholeContext {
+    parts:Vec<ContextPart>
+}
+
+impl WholeContext {
+    pub fn new(parts:Vec<ContextPart>) -> Self {
+        Self { parts }
+    }
+    pub fn merge_with(mut self, mut other:WholeContext) -> WholeContext {
+        self.parts.append(&mut other.parts);
+        Self { parts: self.parts }
+    }
+    pub fn concatenate_into_single_part(&self) -> ContextPart {
+        let mut data = Vec::with_capacity(self.parts.len() * 10);
+        for part in &self.parts {
+            data.extend(part.data.iter().cloned());
+        }
+        ContextPart { data, position:ContextPosition::Total }
+    }
+    pub fn add_part(&mut self, part:ContextPart) {
+        self.parts.push(part);
+    }
+    pub fn get_parts(&self) -> &Vec<ContextPart> {
+        &self.parts
+    }
+    pub fn len(&self) -> usize {
+        self.parts.len()
+    }
+}
