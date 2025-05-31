@@ -5,6 +5,7 @@ use std::{path::PathBuf, sync::{mpmc::channel, Arc}};
 use actix_web::{web::Data, App, HttpServer};
 use ai_interaction::{backend_api::openai_impl::{ChosenModel, OpenAIBackend}, launch_ai_endpoint_thread};
 use database::launch_database_thread;
+use initialization::initialize;
 use proxima_handler::ProximaHandler;
 use openai::Credentials;
 use actix_web::web;
@@ -13,9 +14,11 @@ pub mod database;
 pub mod ai_interaction;
 pub mod web_handlers;
 pub mod proxima_handler;
+pub mod initialization;
 
 #[actix_web::main]
 async fn main() {
+    let initialization_data = initialize();
     let database = database::ProxDatabase::new(String::from("aaa"), String::from("aaa"), PathBuf::from("/home/pir/ia/proxima_testing_grounds"));
     let database_sender = launch_database_thread(database);
     let p1 = channel();
