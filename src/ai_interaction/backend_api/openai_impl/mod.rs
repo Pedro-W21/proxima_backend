@@ -1,6 +1,5 @@
 use std::{collections::HashMap, future::Future, pin::Pin, sync::{mpmc::{channel, Receiver, Sender}, Arc, RwLock}};
 
-use futures::{select, stream::FuturesUnordered, FutureExt, StreamExt};
 use openai::{chat::{ChatCompletion, ChatCompletionChoice, ChatCompletionGeneric, ChatCompletionMessage, ChatCompletionMessageRole}, ApiResponseOrError, Credentials, OpenAiError};
 use crate::database::context::{ContextData, ContextPart, ContextPosition, Prompt, Response, WholeContext};
 
@@ -13,7 +12,7 @@ pub struct OpenAIBackend {
     model:ChosenModel,
     sessions:HashMap<SessionID, OpenAISession>,
     latest_session_id:usize,
-    tasks:Arc<RwLock<FuturesUnordered<Pin<Box<dyn Future<Output = ()>>>>>>,
+    tasks:Arc<RwLock<Vec<Pin<Box<dyn Future<Output = ()>>>>>>,
     task_sender:Sender<(Result<ChatCompletionGeneric<ChatCompletionChoice>, OpenAiError>, SessionID)>,
     results_recv:Receiver<(Result<ChatCompletionGeneric<ChatCompletionChoice>, OpenAiError>, SessionID)>
 }
@@ -62,7 +61,7 @@ impl BackendAPI for OpenAIBackend {
     type ConnData = (Credentials, ChosenModel);
     fn new(connection_data:Self::ConnData) -> Self {
         let (send, recv) = channel();
-        Self { creds: connection_data.0, model:connection_data.1, sessions:HashMap::with_capacity(16), latest_session_id:0, tasks:Arc::new(RwLock::new(FuturesUnordered::new())), task_sender:send, results_recv:recv}
+        Self { creds: connection_data.0, model:connection_data.1, sessions:HashMap::with_capacity(16), latest_session_id:0, tasks:Arc::new(RwLock::new(Vec::new())), task_sender:send, results_recv:recv}
     }
     fn send_new_prompt_streaming(&mut self, new_prompt:WholeContext, session_type:SessionType) -> (SessionID, Receiver<ContextData>) {
         let new_session_id = self.latest_session_id;
@@ -127,14 +126,15 @@ impl BackendAPI for OpenAIBackend {
     }
     fn new_empty() -> Self {
         let (send, recv) = channel();
-        Self { creds: Credentials::new(String::new(), String::new()), model:String::new(), sessions:HashMap::with_capacity(16), latest_session_id:0, tasks:Arc::new(RwLock::new(FuturesUnordered::new())), task_sender:send, results_recv:recv}
+        Self { creds: Credentials::new(String::new(), String::new()), model:String::new(), sessions:HashMap::with_capacity(16), latest_session_id:0, tasks:Arc::new(RwLock::new(Vec::new())), task_sender:send, results_recv:recv}
     
     }
     async fn get_response_to_latest_prompt_for(&mut self, session:SessionID) -> Response {
         let mut task_write = self.tasks.write().unwrap();
-        'a: loop {
-            select! {
-                res = task_write.select_next_some() => {
+        'a: while task_write.len() > 0 {
+                let future = task_write.remove(0);
+                future.await;
+                {
                     while let Ok((result, session_id)) = self.results_recv.recv() {
                         let msg = result.unwrap().choices[0].clone().message;
                         let completion = msg.content.clone();
@@ -154,8 +154,7 @@ impl BackendAPI for OpenAIBackend {
                             None => ()
                         }
                     }
-                },
-            }
+                }
         }
         
         match self.sessions.get_mut(&session) {

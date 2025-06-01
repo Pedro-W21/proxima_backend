@@ -2,16 +2,17 @@
 
 use std::{path::PathBuf, sync::{mpmc::channel, Arc}};
 
+use actix_web::{web::Data, App, HttpServer};
 use ai_interaction::{backend_api::openai_impl::{ChosenModel, OpenAIBackend}, launch_ai_endpoint_thread};
 use database::launch_database_thread;
 use initialization::initialize;
 use proxima_handler::ProximaHandler;
 use openai::Credentials;
-pub mod database;
-pub mod ai_interaction;
-pub mod proxima_handler;
-pub mod initialization;
+use actix_web::web;
+use web_handlers::{ai_endpoint_web_handlers::ai_post_handler, auth_web_handlers::auth_post_handler, database_web_handlers::db_post_handler};
+pub mod web_handlers;
 
+#[actix_web::main]
 async fn initialize_server() {
     let initialization_data = initialize();
     let database = database::ProxDatabase::new(String::from("aaa"), String::from("aaa"), PathBuf::from("/home/pir/ia/proxima_testing_grounds"));
@@ -20,5 +21,15 @@ async fn initialize_server() {
     let p2 = channel();
     let endpoint_sender = launch_ai_endpoint_thread::<OpenAIBackend>((Credentials::new("SDQKJHSFKL","http://localhost:5001/v1/"), ChosenModel::from("RARA")), database_sender.clone(), p1.0, p1.1, p2.0, p2.1);
     let handler = Arc::new(ProximaHandler {ai_endpoint:endpoint_sender, database:database_sender});
-    
+    HttpServer::new(move || {
+        App::new()
+            .app_data(web::Data::new(handler.clone())) // Share the handler
+            .route("/auth", web::post().to(auth_post_handler))
+            .route("/db", web::post().to(db_post_handler))
+            .route("/ai", web::post().to(ai_post_handler))
+    })
+    .bind("127.0.0.1:8080")
+    .unwrap()
+    .run()
+    .await.unwrap();
 }
