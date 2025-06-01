@@ -7,7 +7,7 @@ use ai_interaction::{backend_api::openai_impl::{ChosenModel, OpenAIBackend}, lau
 use proxima_backend::database::launch_database_thread;
 use proxima_backend::initialization::initialize;
 use proxima_backend::proxima_handler::ProximaHandler;
-use proxima_backend::openai::Credentials;
+use openai::Credentials;
 use actix_web::web;
 use web_handlers::{ai_endpoint_web_handlers::ai_post_handler, auth_web_handlers::auth_post_handler, database_web_handlers::db_post_handler};
 pub mod web_handlers;
@@ -16,7 +16,7 @@ pub mod openai_impl;
 #[actix_web::main]
 async fn initialize_server() {
     let initialization_data = initialize();
-    let database = database::ProxDatabase::new(String::from("aaa"), String::from("aaa"), PathBuf::from("/home/pir/ia/proxima_testing_grounds"));
+    let database = proxima_backend::database::ProxDatabase::new(String::from("aaa"), String::from("aaa"), PathBuf::from("/home/pir/ia/proxima_testing_grounds"));
     let database_sender = launch_database_thread(database);
     let p1 = channel();
     let p2 = channel();

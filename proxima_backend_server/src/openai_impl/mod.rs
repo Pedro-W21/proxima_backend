@@ -5,7 +5,7 @@ use proxima_backend::database::context::{ContextData, ContextPart, ContextPositi
 use proxima_backend::database::chats::{SessionID, SessionType};
 
 
-use proxima_backend::ai_endpoint::backend_api::{BackendAPI, BackendError};
+use proxima_backend::ai_interaction::backend_api::{BackendAPI, BackendError};
 
 #[derive(Clone)]
 pub struct OpenAIBackend {
