@@ -4,10 +4,10 @@ use std::{path::PathBuf, sync::{mpmc::channel, Arc}};
 
 use actix_web::{web::Data, App, HttpServer};
 use ai_interaction::{backend_api::openai_impl::{ChosenModel, OpenAIBackend}, launch_ai_endpoint_thread};
-use database::launch_database_thread;
-use initialization::initialize;
-use proxima_handler::ProximaHandler;
-use openai::Credentials;
+use proxima_backend::database::launch_database_thread;
+use proxima_backend::initialization::initialize;
+use proxima_backend::proxima_handler::ProximaHandler;
+use proxima_backend::openai::Credentials;
 use actix_web::web;
 use web_handlers::{ai_endpoint_web_handlers::ai_post_handler, auth_web_handlers::auth_post_handler, database_web_handlers::db_post_handler};
 pub mod web_handlers;

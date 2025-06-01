@@ -2,9 +2,10 @@ use std::{collections::HashMap, future::Future, pin::Pin, sync::{mpmc::{channel,
 
 use openai::{chat::{ChatCompletion, ChatCompletionChoice, ChatCompletionGeneric, ChatCompletionMessage, ChatCompletionMessageRole}, ApiResponseOrError, Credentials, OpenAiError};
 use proxima_backend::database::context::{ContextData, ContextPart, ContextPosition, Prompt, Response, WholeContext};
+use proxima_backend::database::chats::{SessionID, SessionType};
 
 
-use super::{BackendAPI, BackendError, SessionID, SessionType};
+use proxima_backend::ai_endpoint::backend_api::{BackendAPI, BackendError};
 
 #[derive(Clone)]
 pub struct OpenAIBackend {
