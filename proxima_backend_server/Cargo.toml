@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 actix-web = "4"
 proxima_backend = {path = ".."}
+openai = "1.1.0"

@@ -11,6 +11,7 @@ use openai::Credentials;
 use actix_web::web;
 use web_handlers::{ai_endpoint_web_handlers::ai_post_handler, auth_web_handlers::auth_post_handler, database_web_handlers::db_post_handler};
 pub mod web_handlers;
+pub mod openai_impl;
 
 #[actix_web::main]
 async fn initialize_server() {

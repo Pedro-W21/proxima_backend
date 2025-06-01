@@ -2,7 +2,7 @@
 
 use std::{path::PathBuf, sync::{mpmc::channel, Arc}};
 
-use ai_interaction::{backend_api::openai_impl::{ChosenModel, OpenAIBackend}, launch_ai_endpoint_thread};
+use ai_interaction::{launch_ai_endpoint_thread};
 use database::launch_database_thread;
 use initialization::initialize;
 use proxima_handler::ProximaHandler;
@@ -14,11 +14,5 @@ pub mod initialization;
 
 async fn initialize_server() {
     let initialization_data = initialize();
-    let database = database::ProxDatabase::new(String::from("aaa"), String::from("aaa"), PathBuf::from("/home/pir/ia/proxima_testing_grounds"));
-    let database_sender = launch_database_thread(database);
-    let p1 = channel();
-    let p2 = channel();
-    let endpoint_sender = launch_ai_endpoint_thread::<OpenAIBackend>((Credentials::new("SDQKJHSFKL","http://localhost:5001/v1/"), ChosenModel::from("RARA")), database_sender.clone(), p1.0, p1.1, p2.0, p2.1);
-    let handler = Arc::new(ProximaHandler {ai_endpoint:endpoint_sender, database:database_sender});
     
 }

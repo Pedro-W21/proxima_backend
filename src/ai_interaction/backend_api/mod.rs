@@ -4,8 +4,6 @@ use crate::database::{chats::{SessionID, SessionType}, context::{ContextData, Co
 use serde::{Deserialize, Serialize};
 
 
-pub mod openai_impl;
-
 
 
 
