@@ -17,7 +17,7 @@ pub mod proxima_handler;
 pub mod initialization;
 
 #[actix_web::main]
-async fn main() {
+async fn initialize_server() {
     let initialization_data = initialize();
     let database = database::ProxDatabase::new(String::from("aaa"), String::from("aaa"), PathBuf::from("/home/pir/ia/proxima_testing_grounds"));
     let database_sender = launch_database_thread(database);
