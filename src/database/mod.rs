@@ -131,7 +131,8 @@ pub struct DatabaseHandler {
 
 impl DatabaseHandler {
     pub fn new(priority_request_rcv:Receiver<DatabaseRequest>, request_rcv:Receiver<DatabaseRequest>, database:ProxDatabase) -> Self {
-        Self { priority_request_rcv, request_rcv, database, auth_sessions:HashSet::with_capacity(32), auth_sessions_rng:StdRng::from_os_rng() }
+        // FIX THE RNG BEFORE ANY SECURITY GUARANTEES
+        Self { priority_request_rcv, request_rcv, database, auth_sessions:HashSet::with_capacity(32), auth_sessions_rng:StdRng::from_seed([200 ; 32]) }
     }
     pub fn handling_loop(&mut self) {
         loop {
