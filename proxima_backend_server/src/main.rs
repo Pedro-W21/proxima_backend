@@ -16,7 +16,7 @@ pub mod web_handlers;
 pub mod openai_impl;
 
 #[actix_web::main]
-async fn initialize_server() {
+async fn main() {
     let initialization_data = initialize();
     let database = proxima_backend::database::ProxDatabase::new(String::from("aaa"), String::from("aaa"), PathBuf::from("/home/pir/ia/proxima_testing_grounds"));
     let database_sender = launch_database_thread(database);
@@ -31,7 +31,7 @@ async fn initialize_server() {
             .route("/db", web::post().to(db_post_handler))
             .route("/ai", web::post().to(ai_post_handler))
     })
-    .bind("127.0.0.1:8080")
+    .bind("127.0.0.1:8082")
     .unwrap()
     .run()
     .await.unwrap();
