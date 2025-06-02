@@ -5,8 +5,8 @@ use crate::{ai_interaction::endpoint_api::{EndpointRequestVariant, EndpointRespo
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AIPayload {
-    auth_key:String,
-    request:EndpointRequestVariant
+    pub auth_key:String,
+    pub request:EndpointRequestVariant
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AIResponse {
@@ -23,12 +23,12 @@ impl AIPayload {
 
 #[derive(Clone, Serialize,Deserialize)]
 pub struct AuthPayload {
-    device_name:String,
-    device_type:DeviceType,
-    device_os:String,
-    device_model:String,
-    password_hash:String,
-    username:String
+    pub device_name:String,
+    pub device_type:DeviceType,
+    pub device_os:String,
+    pub device_model:String,
+    pub password_hash:String,
+    pub username:String
 }
 #[derive(Clone, Serialize,Deserialize)]
 pub struct AuthResponse {
@@ -56,8 +56,8 @@ impl AuthPayload {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct DBPayload {
-    auth_key:String,
-    request:DatabaseRequestVariant
+    pub auth_key:String,
+    pub request:DatabaseRequestVariant
 }
 
 impl DBPayload {
@@ -68,5 +68,5 @@ impl DBPayload {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct DBResponse {
-    reply:DatabaseReplyVariant
+    pub reply:DatabaseReplyVariant
 }
