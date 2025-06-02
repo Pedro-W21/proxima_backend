@@ -13,6 +13,7 @@ html_parser = "0.7.0"
 chrono = {version = "0.4.38", features = ["serde"]}
 rand = "0.9.1"
 getrandom = { version = "0.3.3", features = ["wasm_js"] }
+whoami = "1.6.0"
 
 [lib]
 path = "src/lib.rs"
