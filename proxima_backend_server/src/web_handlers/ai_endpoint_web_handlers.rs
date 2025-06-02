@@ -7,16 +7,8 @@ use proxima_backend::{ai_interaction::endpoint_api::{EndpointRequest, EndpointRe
 
 use super::auth_web_handlers::is_auth_right;
 
+use proxima_backend::web_payloads::{AIPayload, AIResponse};
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct AIPayload {
-    auth_key:String,
-    request:EndpointRequestVariant
-}
-#[derive(Clone, Serialize, Deserialize)]
-pub struct AIResponse {
-    reply:EndpointResponseVariant
-}
 
 pub async fn ai_post_handler(payload: web::Json<AIPayload>, data: web::Data<Arc<ProximaHandler>>) -> impl Responder {
     if is_auth_right(payload.auth_key.clone(), data.clone()) {

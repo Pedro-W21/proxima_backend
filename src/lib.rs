@@ -10,6 +10,7 @@ pub mod database;
 pub mod ai_interaction;
 pub mod proxima_handler;
 pub mod initialization;
+pub mod web_payloads;
 
 async fn initialize_server() {
     let initialization_data = initialize();

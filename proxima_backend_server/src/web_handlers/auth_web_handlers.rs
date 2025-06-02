@@ -5,19 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use proxima_backend::{database::{devices::{Device, DeviceType}, DatabaseInfoReply, DatabaseInfoRequest, DatabaseItem, DatabaseItemID, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant}, proxima_handler::ProximaHandler};
 
-#[derive(Clone, Serialize,Deserialize)]
-pub struct AuthPayload {
-    device_name:String,
-    device_type:DeviceType,
-    device_os:String,
-    device_model:String,
-    password_hash:String,
-    username:String
-}
-#[derive(Clone, Serialize,Deserialize)]
-pub struct AuthResponse {
-    session_token:String,
-}
+
+use proxima_backend::web_payloads::{AuthPayload, AuthResponse};
 
 pub async fn auth_post_handler(payload: web::Json<AuthPayload>, data: web::Data<Arc<ProximaHandler>>) -> impl Responder {
     // process payload and use handler

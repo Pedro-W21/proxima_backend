@@ -8,15 +8,7 @@ use proxima_backend::{database::{DatabaseItemID, DatabaseReplyVariant, DatabaseR
 use super::auth_web_handlers::is_auth_right;
 
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct DBPayload {
-    auth_key:String,
-    request:DatabaseRequestVariant
-}
-#[derive(Clone, Serialize, Deserialize)]
-pub struct DBResponse {
-    reply:DatabaseReplyVariant
-}
+use proxima_backend::web_payloads::{DBPayload, DBResponse};
 
 pub async fn db_post_handler(payload: web::Json<DBPayload>, data: web::Data<Arc<ProximaHandler>>) -> impl Responder {
     if is_auth_right(payload.auth_key.clone(), data.clone()) {
