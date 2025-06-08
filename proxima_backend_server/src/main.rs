@@ -9,7 +9,7 @@ use proxima_backend::initialization::initialize;
 use proxima_backend::proxima_handler::ProximaHandler;
 use openai::Credentials;
 use actix_web::web;
-use web_handlers::{ai_endpoint_web_handlers::ai_post_handler, auth_web_handlers::auth_post_handler, database_web_handlers::db_post_handler};
+use web_handlers::{ai_endpoint_web_handlers::ai_post_handler, auth_web_handlers::auth_post_handler, database_web_handlers::db_post_handler, home_endpoint_web_handlers::home_get_handler};
 use openai_impl::{ChosenModel, OpenAIBackend};
 
 pub mod web_handlers;
@@ -27,6 +27,7 @@ async fn main() {
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(handler.clone())) // Share the handler
+            .route("/home", web::get().to(home_get_handler))
             .route("/auth", web::post().to(auth_post_handler))
             .route("/db", web::post().to(db_post_handler))
             .route("/ai", web::post().to(ai_post_handler))

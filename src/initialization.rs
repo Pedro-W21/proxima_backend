@@ -49,7 +49,7 @@ pub fn initialize() -> InitializationData {
     loop {
         let path_string = ask_for_input("What is The absolute path to your proxima persistent data ? It will create a new sub-folder in the target folder.");
         if !path_string.trim().is_empty() {
-            let path_buf = PathBuf::from(path_string);
+            let path_buf = PathBuf::from(path_string.trim());
             if path_buf.is_dir() {
                 init.proxima_path = path_buf.join(PathBuf::from("proxima_backend/"));
                 break;
