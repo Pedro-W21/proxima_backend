@@ -22,6 +22,6 @@ pub trait BackendAPI {
     fn add_to_session(&mut self, new_prompt:Prompt, id:SessionID) -> Result<(), BackendError>;
     fn try_get_response_to_latest_prompt_for(&mut self, session:SessionID) -> Option<Response>;
     fn get_response_to_latest_prompt_for_blocking(&mut self, session:SessionID) -> Response;
-    async fn get_response_to_latest_prompt_for(&mut self, session:SessionID) -> Response;
+    fn get_response_to_latest_prompt_for(&mut self, session:SessionID) -> impl std::future::Future<Output = Response> + Send;
     fn get_whole_current_context_for(&self, session:SessionID) -> Result<WholeContext, BackendError>;
 }

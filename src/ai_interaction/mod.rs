@@ -1,4 +1,4 @@
-use std::{sync::mpmc::{channel, Receiver, Sender}, thread};
+use std::{sync::mpmc::{channel, Receiver, Sender}, thread::{self, JoinHandle}};
 
 use backend_api::BackendAPI;
 use endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponse, EndpointResponseVariant};
@@ -29,17 +29,21 @@ impl<B:BackendAPI> RequestHandler<B> {
     pub fn new(database_sender:DatabaseSender, request_variant:EndpointRequestVariant, response_sender:Sender<EndpointResponse>, backend:B, streaming:bool) -> Self {
         Self { database_sender, request_variant, response_sender, backend, streaming }
     }
-    pub fn respond(mut self) {
+    pub async fn respond(mut self) {
         match self.request_variant {
             EndpointRequestVariant::Continue => (),
             EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type } => {
+                println!("in response cycle");
                 let id = self.backend.send_new_prompt(whole_context, session_type);
-                let response = self.backend.get_response_to_latest_prompt_for_blocking(id);
+                println!("Sent prompt !!!");
+                let response = self.backend.get_response_to_latest_prompt_for(id).await;
+                println!("got response");
                 self.response_sender.send(EndpointResponse { variant: EndpointResponseVariant::Block(response) }).unwrap();
+                println!("Sent back response");
             }
         }
     }
-    pub fn streaming_respond(mut self) {
+    pub async fn streaming_respond(mut self) {
         match self.request_variant {
             EndpointRequestVariant::Continue => (),
             EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type } => {
@@ -64,22 +68,22 @@ impl AiEndpointSender {
     }
 }
 
-impl<B:BackendAPI + 'static> AIEndpoint<B> {
+impl<B:BackendAPI + Send + 'static> AIEndpoint<B> {
     pub fn new(prio_requests:Receiver<EndpointRequest>, requests:Receiver<EndpointRequest>, conn_data:B::ConnData, database_sender:DatabaseSender) -> Self {
         Self { backend_conn: conn_data, database_sender, prio_requests, requests }
     }
-    pub fn handling_loop(mut self) {
+    pub async fn handling_loop(mut self) {
         loop {
             match self.prio_requests.recv() {
                 Ok(request) => {
-                    self.handle_request(request);
+                    self.handle_request(request).await;
                 },
                 Err(error) => panic!("Database access error : {}", error)
             }
             loop {
                 if self.prio_requests.is_empty() {
                     if let Ok(request) = self.requests.try_recv() {
-                        self.handle_request(request);
+                        self.handle_request(request).await;
                     }
                     else {
                         break;
@@ -91,7 +95,7 @@ impl<B:BackendAPI + 'static> AIEndpoint<B> {
             }
         }
     }
-    pub fn handle_request(&mut self, request:EndpointRequest) {
+    pub async fn handle_request(&mut self, request:EndpointRequest) {
         match request.variant.clone() {
             EndpointRequestVariant::Continue => (),
             EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type } => {
@@ -100,7 +104,7 @@ impl<B:BackendAPI + 'static> AIEndpoint<B> {
                     let response = request.response_tunnel.clone();
                     let request = request.variant.clone();
                     let backend_conn = self.backend_conn.clone();
-                    thread::spawn(move || {
+                    thread::spawn( move || async move {
                         RequestHandler::new(db_send_clone, request, response, B::new(backend_conn), streaming).streaming_respond();
                     });
                 }
@@ -109,19 +113,20 @@ impl<B:BackendAPI + 'static> AIEndpoint<B> {
                     let response = request.response_tunnel.clone();
                     let request = request.variant.clone();
                     let backend_conn = self.backend_conn.clone();
-                    thread::spawn(move || {
-                        RequestHandler::new(db_send_clone, request, response, B::new(backend_conn), streaming).respond();
+                    let thread = thread::spawn( move || async move {
+                        RequestHandler::new(db_send_clone, request, response, B::new(backend_conn), streaming).respond().await;
                     });
+                    let result = thread.join().unwrap().await;
                 }
             }
         }
     }
 }
 
-pub fn launch_ai_endpoint_thread<B:BackendAPI + 'static>(conn_data:B::ConnData,database_sender:DatabaseSender, prio_send:Sender<EndpointRequest>, prio_rcv:Receiver<EndpointRequest>, normal_send:Sender<EndpointRequest>, normal_rcv:Receiver<EndpointRequest>) -> AiEndpointSender {
+pub async fn launch_ai_endpoint_thread<B:BackendAPI + Send + 'static>(conn_data:B::ConnData,database_sender:DatabaseSender, prio_send:Sender<EndpointRequest>, prio_rcv:Receiver<EndpointRequest>, normal_send:Sender<EndpointRequest>, normal_rcv:Receiver<EndpointRequest>) -> (AiEndpointSender, JoinHandle<impl Future<Output = ()>>) {
     let conn_copy = conn_data.clone();
-    thread::spawn(move || {
-        AIEndpoint::<B>::new(prio_rcv, normal_rcv, conn_copy, database_sender).handling_loop();
+    let ai_thread = thread::spawn(move || async move {
+        AIEndpoint::<B>::new(prio_rcv, normal_rcv, conn_copy, database_sender).handling_loop().await;
     });
-    AiEndpointSender { prio_request_sender:prio_send, request_sender:normal_send }
+    (AiEndpointSender { prio_request_sender:prio_send, request_sender:normal_send }, ai_thread)
 }

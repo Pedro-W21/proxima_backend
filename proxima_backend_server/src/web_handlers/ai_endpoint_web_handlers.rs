@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 
 use proxima_backend::{ai_interaction::endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}, database::{DatabaseItemID, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant}, proxima_handler::ProximaHandler};
 
+use std::thread;
+use std::time::Duration;
+
 use super::auth_web_handlers::is_auth_right;
 
 use proxima_backend::web_payloads::{AIPayload, AIResponse};

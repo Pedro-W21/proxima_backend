@@ -1,4 +1,4 @@
-use std::sync::mpmc::{channel, Receiver, Sender};
+use std::sync::mpmc::{channel, sync_channel, Receiver, Sender};
 
 use serde::{Deserialize, Serialize};
 
@@ -13,7 +13,7 @@ pub struct EndpointRequest {
 
 impl EndpointRequest {
     pub fn new(variant:EndpointRequestVariant) -> (Self, Receiver<EndpointResponse>) {
-        let (response_tunnel, receiver_tunnel) = channel();
+        let (response_tunnel, receiver_tunnel) = sync_channel(0);
         (
             Self {
                 variant,

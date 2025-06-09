@@ -13,7 +13,8 @@ pub struct OpenAIBackend {
     model:ChosenModel,
     sessions:HashMap<SessionID, OpenAISession>,
     latest_session_id:usize,
-    tasks:Arc<RwLock<Vec<Pin<Box<dyn Future<Output = ()>>>>>>,
+    total_tasks:usize,
+    tasks:Arc<RwLock<Vec<Pin<Box<dyn Future<Output = ()> + Send + Sync>>>>>,
     task_sender:Sender<(Result<ChatCompletionGeneric<ChatCompletionChoice>, OpenAiError>, SessionID)>,
     results_recv:Receiver<(Result<ChatCompletionGeneric<ChatCompletionChoice>, OpenAiError>, SessionID)>
 }
@@ -62,7 +63,7 @@ impl BackendAPI for OpenAIBackend {
     type ConnData = (Credentials, ChosenModel);
     fn new(connection_data:Self::ConnData) -> Self {
         let (send, recv) = channel();
-        Self { creds: connection_data.0, model:connection_data.1, sessions:HashMap::with_capacity(16), latest_session_id:0, tasks:Arc::new(RwLock::new(Vec::new())), task_sender:send, results_recv:recv}
+        Self { creds: connection_data.0, model:connection_data.1, sessions:HashMap::with_capacity(16), latest_session_id:0, tasks:Arc::new(RwLock::new(Vec::new())), task_sender:send, results_recv:recv, total_tasks:0}
     }
     fn send_new_prompt_streaming(&mut self, new_prompt:WholeContext, session_type:SessionType) -> (SessionID, Receiver<ContextData>) {
         let new_session_id = self.latest_session_id;
@@ -127,14 +128,20 @@ impl BackendAPI for OpenAIBackend {
     }
     fn new_empty() -> Self {
         let (send, recv) = channel();
-        Self { creds: Credentials::new(String::new(), String::new()), model:String::new(), sessions:HashMap::with_capacity(16), latest_session_id:0, tasks:Arc::new(RwLock::new(Vec::new())), task_sender:send, results_recv:recv}
+        Self { creds: Credentials::new(String::new(), String::new()), model:String::new(), sessions:HashMap::with_capacity(16), latest_session_id:0, tasks:Arc::new(RwLock::new(Vec::new())), task_sender:send, results_recv:recv, total_tasks:0}
     
     }
     async fn get_response_to_latest_prompt_for(&mut self, session:SessionID) -> Response {
-        let mut task_write = self.tasks.write().unwrap();
-        'a: while task_write.len() > 0 {
-                let future = task_write.remove(0);
-                future.await;
+        'a: while self.total_tasks > 0 {
+                {
+                    self.total_tasks -= 1;
+                    let future = {
+                        let mut task_write = self.tasks.write().unwrap();
+                        task_write.remove(0)
+                    }; 
+                    future.await;
+                }
+                
                 {
                     while let Ok((result, session_id)) = self.results_recv.recv() {
                         let msg = result.unwrap().choices[0].clone().message;
@@ -309,7 +316,10 @@ impl BackendAPI for OpenAIBackend {
         let creds_clone = self.creds.clone();
         let sender_clone = self.task_sender.clone();
         let completion = Box::pin( (async move || {sender_clone.send((ChatCompletion::builder(model_clone.as_str(), messages_clones).credentials(creds_clone).create().await, session_clones)).unwrap()})());
-        self.tasks.write().unwrap().push(completion);
+        {
+            self.tasks.write().unwrap().push(completion);
+            self.total_tasks += 1;
+        }
         self.sessions.insert(session_id, OpenAISession { session_data: OpenAISessionData::ChatComp { messages: messages, context_ver: new_prompt, waiting_on:None }, status: OpenAISessionStatus::Beginning });
         session_id
     }

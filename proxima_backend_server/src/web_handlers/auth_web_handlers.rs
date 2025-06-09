@@ -43,8 +43,8 @@ pub async fn auth_post_handler(payload: web::Json<AuthPayload>, data: web::Data<
                                 if !found_device {
                                     let (request, recv) = DatabaseRequest::new(DatabaseRequestVariant::Add(DatabaseItem::Device(Device::new(0, payload.device_name.clone(), payload.device_type.clone(), payload.device_os.clone(), payload.device_model.clone()))));
                                     data.database.send_normal(request);
-                                    match recv.recv().unwrap().variant {
-                                        DatabaseReplyVariant::RequestExecuted => (),
+                                    device_id = match recv.recv().unwrap().variant {
+                                        DatabaseReplyVariant::AddedItem(DatabaseItemID::Device(id)) => id,
                                         _ => panic!("Confusion on return")
                                     }
                                 }
