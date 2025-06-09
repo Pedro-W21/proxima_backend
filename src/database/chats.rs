@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::database::context::ContextPosition;
+
 use super::{access_modes::AccessModeID, context::{ContextPart, WholeContext}, devices::DeviceID, tags::TagID};
 
 pub type ChatID = usize;
@@ -44,6 +46,16 @@ impl Chat {
     }
     pub fn get_session_id(&self) -> &Option<SessionID> {
         &self.session_id
+    }
+    pub fn add_to_context(&mut self, new_context:ContextPart) {
+        let waiting_on_response = 
+        match new_context.get_position() {
+            &ContextPosition::User | &ContextPosition::System => false,
+            _ => true
+        };
+        self.waiting_on_response = waiting_on_response;
+        self.context.add_part(new_context);
+        self.latest_message = Utc::now();
     }
 }
 
