@@ -57,6 +57,9 @@ impl Chat {
         self.context.add_part(new_context);
         self.latest_message = Utc::now();
     }
+    pub fn is_waiting_on_response(&self) -> bool {
+        self.waiting_on_response
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
