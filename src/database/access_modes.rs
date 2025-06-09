@@ -30,9 +30,10 @@ impl AccessModes {
         let num = mode.id;
         self.all_modes[num] = mode;
     }
-    pub fn add_mode(&mut self, mut mode:AccessMode) {
+    pub fn add_mode(&mut self, mut mode:AccessMode) -> AccessModeID {
         let num = self.all_modes.len();
         mode.id = num;
         self.all_modes.push(mode);
+        num
     }
 }

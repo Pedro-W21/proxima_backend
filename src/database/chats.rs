@@ -29,6 +29,7 @@ pub struct Chat {
     pub session_id:Option<SessionID>,
     pub origin_device:DeviceID, 
     pub start_date:DateTime<Utc>,
+    pub waiting_on_response:bool,
     pub latest_message:DateTime<Utc>,
     pub tags:Vec<TagID>,
     pub access_modes:Vec<AccessModeID>
@@ -78,7 +79,8 @@ impl Chats {
             tags:Vec::new(),
             access_modes:vec![0],
             latest_message:Utc::now(),
-            start_date:Utc::now()
+            start_date:Utc::now(),
+            waiting_on_response:true
         });
         id
     }
@@ -86,9 +88,10 @@ impl Chats {
         let id = chat.id;
         self.all_chats.insert(id, chat);
     }
-    pub fn add_chat_raw(&mut self, mut chat:Chat) {
+    pub fn add_chat_raw(&mut self, mut chat:Chat) -> ChatID {
         let id = self.all_chats.len();
         chat.id = id;
         self.all_chats.insert(id, chat);
+        id
     }
 }

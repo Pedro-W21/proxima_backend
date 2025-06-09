@@ -252,9 +252,10 @@ impl Folders {
             }
         }
     }
-    pub fn add_folder_raw(&mut self, mut folder:ProxFolder) {
+    pub fn add_folder_raw(&mut self, mut folder:ProxFolder) -> FolderID {
         let id = self.all_folders.len();
         folder.id = id;
         self.all_folders.insert(id, folder);
+        id
     }
 }

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{ai_interaction::endpoint_api::{EndpointRequestVariant, EndpointResponseVariant}, database::{devices::DeviceType, DatabaseReplyVariant, DatabaseRequestVariant}};
+use crate::{ai_interaction::endpoint_api::{EndpointRequestVariant, EndpointResponseVariant}, database::{devices::{DeviceID, DeviceType}, DatabaseReplyVariant, DatabaseRequestVariant}};
 
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -33,6 +33,7 @@ pub struct AuthPayload {
 #[derive(Clone, Serialize,Deserialize)]
 pub struct AuthResponse {
     pub session_token:String,
+    pub device_id:DeviceID
 }
 
 

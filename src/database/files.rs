@@ -136,10 +136,11 @@ impl Files {
     pub fn remove_file(&mut self, id:FileID, folders:&mut Folders) {
         
     }
-    pub fn add_file_raw(&mut self, mut file:ProxFile) {
+    pub fn add_file_raw(&mut self, mut file:ProxFile) -> FileID {
         let file_id = self.all_files.len();
         file.id = file_id;
         self.all_files.push(file);
+        file_id
     }
     pub fn get_file_by_path(&self, path:AbsolutePath) -> Option<FileID> {
         self.all_files.iter().find(|file| {file.absolute_path == path}).and_then(|file|{Some(file.id)})

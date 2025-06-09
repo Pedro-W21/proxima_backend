@@ -51,10 +51,11 @@ impl Tags {
     pub fn new() -> Self {
         Self { all_tags: Vec::with_capacity(256) }
     }
-    pub fn add_tag_raw(&mut self, mut tag:Tag) {
+    pub fn add_tag_raw(&mut self, mut tag:Tag) -> TagID {
         let id = self.all_tags.len();
         tag.number = id;
         self.all_tags.push(tag);
+        id
     }
     pub fn add_tag(&mut self, mut new_tag:NewTag) {
         match new_tag.parent {

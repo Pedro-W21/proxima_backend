@@ -47,9 +47,10 @@ impl Devices {
         self.all_devices[id] = device;
         
     }
-    pub fn add_device(&mut self, mut device:Device) {
+    pub fn add_device(&mut self, mut device:Device) -> DeviceID {
         let id = self.all_devices.len();
         device.id = id;
         self.all_devices.push(device);
+        id
     }
 }
