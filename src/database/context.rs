@@ -18,6 +18,26 @@ impl ContextPart {
     pub fn get_position(&self) -> &ContextPosition {
         &self.position
     }
+    pub fn in_visible_position(&self) -> bool {
+        match self.position {
+            ContextPosition::System => false,
+            _ => true
+        }
+    }
+    pub fn is_user(&self) -> bool {
+        match self.position {
+            ContextPosition::User => true,
+            _ => false
+        }
+    }
+    pub fn data_to_text(&self) -> Vec<String> {
+        self.data.iter().map(|part| {
+            match part {
+                ContextData::Text(text) => text.clone(),
+                ContextData::Image(img) => String::from("Alt text : This is an image. Not much more I can say since alt text is not implemented yet")
+            }
+        }).collect()
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
