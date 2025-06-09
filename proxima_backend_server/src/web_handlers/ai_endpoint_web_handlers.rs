@@ -15,7 +15,7 @@ pub async fn ai_post_handler(payload: web::Json<AIPayload>, data: web::Data<Arc<
         let (request, recv) = EndpointRequest::new(payload.request.clone());
         data.ai_endpoint.send_prio(request);
         let reply = recv.recv().unwrap();
-        HttpResponse::Ok().json(reply.variant)
+        HttpResponse::Ok().json(AIResponse {reply:reply.variant})
     }
     else {
         HttpResponse::Forbidden().json("Wrong authentication")

@@ -15,7 +15,7 @@ pub async fn db_post_handler(payload: web::Json<DBPayload>, data: web::Data<Arc<
         let (request, recv) = DatabaseRequest::new(payload.request.clone());
         data.database.send_prio(request);
         let reply = recv.recv().unwrap();
-        HttpResponse::Ok().json(reply.variant)
+        HttpResponse::Ok().json(DBResponse {reply:reply.variant})
     }
     else {
         HttpResponse::Forbidden().json("Wrong authentication")
