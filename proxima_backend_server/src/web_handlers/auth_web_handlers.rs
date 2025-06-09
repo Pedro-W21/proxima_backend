@@ -20,6 +20,7 @@ pub async fn auth_post_handler(payload: web::Json<AuthPayload>, data: web::Data<
                 data.database.send_prio(request);
                 match recv.recv().unwrap().variant {
                     DatabaseReplyVariant::NewAuth(new_auth) => {
+                        let mut device_id = 0;
                         let (request, recv) = DatabaseRequest::new(DatabaseRequestVariant::Info(DatabaseInfoRequest::NumbersOfItems));
                         data.database.send_prio(request);
                         match recv.recv().unwrap().variant {
@@ -32,6 +33,7 @@ pub async fn auth_post_handler(payload: web::Json<AuthPayload>, data: web::Data<
                                         DatabaseReplyVariant::ReturnedItem(DatabaseItem::Device(device)) => {
                                             if &device.device_model == &payload.device_model && &device.device_name == &payload.device_name && &device.device_type == &payload.device_type {
                                                 found_device = true;
+                                                device_id = i;
                                                 break
                                             }
                                         },
@@ -50,7 +52,8 @@ pub async fn auth_post_handler(payload: web::Json<AuthPayload>, data: web::Data<
                             _ => panic!("Confusion on return")
                         }
                         HttpResponse::Ok().json(AuthResponse {  
-                            session_token:new_auth, 
+                            session_token:new_auth,
+                            device_id
                         })  
                     },
                     _ => panic!("Confusion on return")
