@@ -60,6 +60,13 @@ impl Chat {
     pub fn is_waiting_on_response(&self) -> bool {
         self.waiting_on_response
     }
+
+    pub fn last_response_is_user(&self) -> bool {
+        match self.context.get_parts().last().unwrap().get_position() {
+            &ContextPosition::User => true,
+            _ => false
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
