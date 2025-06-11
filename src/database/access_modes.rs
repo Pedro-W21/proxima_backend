@@ -11,6 +11,15 @@ pub struct AccessMode {
     name:String
 }
 
+impl AccessMode {
+    pub fn get_name(&self) -> &String {
+        &self.name
+    }
+    pub fn get_tags(&self) -> &Vec<TagID> {
+        &self.tags
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AccessModes {
     all_modes:Vec<AccessMode>
