@@ -22,6 +22,10 @@ impl Tag {
     pub fn get_parent(&self) -> Option<TagID> {
         self.parent
     }
+    
+    pub fn new(number:TagID, name:String, desc:Description, parent:Option<TagID>) -> Self {
+        Self { number, name, desc, parent }
+    }
 }
 
 pub struct NewTag {
