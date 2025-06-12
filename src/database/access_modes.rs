@@ -44,6 +44,10 @@ impl AccessModes {
         let num = mode.id;
         self.all_modes[num] = mode;
     }
+    pub fn associate_tag_to_mode(&mut self, mode:AccessModeID, tag:TagID) -> bool {
+        self.all_modes[0].tags.insert(tag);
+        self.all_modes[mode].tags.insert(tag)
+    }
     pub fn add_mode(&mut self, mut mode:AccessMode) -> AccessModeID {
         let num = self.all_modes.len();
         mode.id = num;
