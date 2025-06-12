@@ -12,6 +12,9 @@ pub struct AccessMode {
 }
 
 impl AccessMode {
+    pub fn new(id:AccessModeID, tags:Vec<TagID>, name:String) -> Self {
+        Self { id, tags, name }
+    }
     pub fn get_name(&self) -> &String {
         &self.name
     }
