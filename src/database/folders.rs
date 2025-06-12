@@ -20,7 +20,7 @@ pub type FolderID = usize;
 pub struct ProxFolder {
     id:FolderID,
     absolute_path:AbsolutePath,
-    tags:Vec<TagID>,
+    tags:HashSet<TagID>,
     desc:Option<Description>,
     name:String,
     last_updated:Option<DateTime<Utc>>,
@@ -29,12 +29,12 @@ pub struct ProxFolder {
     parent:Option<FolderID>,
     files:Vec<FileID>,
     from_device:DeviceID,
-    access_modes:Vec<AccessModeID>
+    access_modes:HashSet<AccessModeID>
 }
 
 impl ProxFolder {
     pub fn new_empty(id:FolderID, absolute_path:AbsolutePath, parent:Option<FolderID>, recursive:RecursivityLevel, from_device:DeviceID) -> Self {
-        Self {access_modes:vec![0], id, from_device, absolute_path:absolute_path.clone(), tags: Vec::with_capacity(4), desc: None, name:absolute_path.file_name().unwrap().to_string_lossy().to_string() , last_updated:None, recursive, children: Vec::with_capacity(4), parent, files: Vec::with_capacity(4) }
+        Self {access_modes:HashSet::from([0]), id, from_device, absolute_path:absolute_path.clone(), tags: HashSet::with_capacity(4), desc: None, name:absolute_path.file_name().unwrap().to_string_lossy().to_string() , last_updated:None, recursive, children: Vec::with_capacity(4), parent, files: Vec::with_capacity(4) }
     }
     pub fn get_id(&self) -> FolderID {
         self.id
@@ -42,7 +42,7 @@ impl ProxFolder {
     pub fn add_file_child(&mut self, file_id:FileID) {
         self.files.push(file_id);
     }
-    pub fn add_desc_tags(&mut self, desc:Description, tags:Vec<TagID>) {
+    pub fn add_desc_tags(&mut self, desc:Description, tags:HashSet<TagID>) {
         self.desc = Some(desc);
         self.tags = tags;
     }

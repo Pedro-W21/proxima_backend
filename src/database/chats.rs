@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -33,8 +33,8 @@ pub struct Chat {
     pub start_date:DateTime<Utc>,
     pub waiting_on_response:bool,
     pub latest_message:DateTime<Utc>,
-    pub tags:Vec<TagID>,
-    pub access_modes:Vec<AccessModeID>
+    pub tags:HashSet<TagID>,
+    pub access_modes:HashSet<AccessModeID>
 }
 
 impl Chat {
@@ -98,8 +98,8 @@ impl Chats {
             session_id,
             origin_device,
             id,
-            tags:Vec::new(),
-            access_modes:vec![0],
+            tags:HashSet::new(),
+            access_modes:HashSet::from([0]),
             latest_message:Utc::now(),
             start_date:Utc::now(),
             waiting_on_response:true

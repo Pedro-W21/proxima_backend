@@ -45,7 +45,7 @@ impl ProxDatabase {
     pub fn new_just_data(pseudonym:String, password_hash:String) -> ProxDatabase {
         Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder:PathBuf::from("a/a/a/a/a/a/a/a"), chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new() }
     }
-    pub fn add_desc_and_tags(&mut self, desc_type:DescriptionTarget, desc:Description, tags:Vec<TagID>) {
+    pub fn add_desc_and_tags(&mut self, desc_type:DescriptionTarget, desc:Description, tags:HashSet<TagID>) {
         match desc_type {
             DescriptionTarget::File(id) => self.files.get_file_mut(id).add_desc_tags(desc, tags),
             DescriptionTarget::Folder(id) => self.folders.get_folder_mut(id).add_desc_tags(desc, tags),

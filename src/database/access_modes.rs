@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 
 use super::tags::TagID;
@@ -7,18 +9,18 @@ pub type AccessModeID = usize;
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AccessMode {
     id:AccessModeID,
-    tags:Vec<TagID>,
+    tags:HashSet<TagID>,
     name:String
 }
 
 impl AccessMode {
-    pub fn new(id:AccessModeID, tags:Vec<TagID>, name:String) -> Self {
+    pub fn new(id:AccessModeID, tags:HashSet<TagID>, name:String) -> Self {
         Self { id, tags, name }
     }
     pub fn get_name(&self) -> &String {
         &self.name
     }
-    pub fn get_tags(&self) -> &Vec<TagID> {
+    pub fn get_tags(&self) -> &HashSet<TagID> {
         &self.tags
     }
 }
@@ -30,7 +32,7 @@ pub struct AccessModes {
 
 impl AccessModes {
     pub fn new() -> Self {
-        Self { all_modes: vec![AccessMode {id:0, tags:Vec::new(), name:String::from("global")}] }
+        Self { all_modes: vec![AccessMode {id:0, tags:HashSet::new(), name:String::from("global")}] }
     }
     pub fn get_modes(&self) -> &Vec<AccessMode> {
         &self.all_modes

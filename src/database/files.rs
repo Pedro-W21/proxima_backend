@@ -1,4 +1,4 @@
-use std::{ffi::OsString, fs::{self, File}, io::Read};
+use std::{collections::HashSet, ffi::OsString, fs::{self, File}, io::Read};
 
 use serde::{Deserialize, Serialize};
 
@@ -12,12 +12,12 @@ pub type FileID = usize;
 pub struct ProxFile {
     id:FileID,
     absolute_path:AbsolutePath,
-    tags:Vec<TagID>,
+    tags:HashSet<TagID>,
     desc:Option<Description>,
     name:String,
     extension:Option<String>,
     from_device:DeviceID,
-    access_modes:Vec<AccessModeID>,
+    access_modes:HashSet<AccessModeID>,
 }
 
 impl ProxFile {
@@ -36,7 +36,7 @@ impl ProxFile {
             Err(error) => panic!("File that's supposed to exist doesn't {}", self.absolute_path.clone().to_string_lossy().to_string()),
         }
     }
-    pub fn add_desc_tags(&mut self, desc:Description, tags:Vec<TagID>) {
+    pub fn add_desc_tags(&mut self, desc:Description, tags:HashSet<TagID>) {
         self.desc = Some(desc);
         self.tags = tags
     }
@@ -116,7 +116,7 @@ impl Files {
                         None => None
                     };
                     let id = self.take_next_file();
-                    self.all_files.push(ProxFile {access_modes:vec![0], id, absolute_path:file.absolute_path, tags:Vec::new(), desc:None, name, extension, from_device:file.from_device});
+                    self.all_files.push(ProxFile {access_modes:HashSet::from([0]), id, absolute_path:file.absolute_path, tags:HashSet::new(), desc:None, name, extension, from_device:file.from_device});
                     match in_folder {
                         Some(fold) => {
                             fold.add_file_child(id);
