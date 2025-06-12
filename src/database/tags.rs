@@ -61,7 +61,7 @@ impl Tags {
         self.all_tags.push(tag);
         id
     }
-    pub fn add_tag(&mut self, mut new_tag:NewTag) {
+    pub fn add_tag(&mut self, mut new_tag:NewTag) -> TagID {
         match new_tag.parent {
             Some(tagid) => match self.get_tag_from_tagid(tagid) {
                 Some(tag) => (),
@@ -69,10 +69,11 @@ impl Tags {
             },
             None => ()
         }
-        
-        self.all_tags.push(Tag {number:self.all_tags.len(), name:new_tag.name, desc:new_tag.desc, parent:new_tag.parent})
+        let tag_id = self.all_tags.len();
+        self.all_tags.push(Tag {number:self.all_tags.len(), name:new_tag.name, desc:new_tag.desc, parent:new_tag.parent});
+        tag_id
     }
-    pub fn add_tag_with_parent_name(&mut self, mut new_tag:NewTag, parent_name:Option<String>) {
+    pub fn add_tag_with_parent_name(&mut self, mut new_tag:NewTag, parent_name:Option<String>) -> TagID {
         match parent_name {
             Some(parent_tag) => match self.get_tagid_of(parent_tag.clone()) {
                 Some(tagid) => (),
@@ -84,7 +85,7 @@ impl Tags {
             },
             None => ()
         }
-        self.add_tag(new_tag);
+        self.add_tag(new_tag)
     }
     pub fn get_tagid_of(&self, tag_name:String) -> Option<TagID> {
         self.all_tags.iter().enumerate().find(|(id, tag)| {tag.name == tag_name}).and_then(|(id, tag)| {Some(id)})
