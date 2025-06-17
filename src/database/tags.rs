@@ -25,6 +25,9 @@ impl Tag {
     pub fn get_parent(&self) -> Option<TagID> {
         self.parent
     }
+    pub fn get_id(&self) -> TagID {
+        self.number
+    }
     
     pub fn new(number:TagID, name:String, desc:Description, parent:Option<TagID>) -> Self {
         Self { number, name, desc, parent, created_at:Utc::now() }

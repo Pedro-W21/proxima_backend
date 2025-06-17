@@ -14,7 +14,7 @@ pub enum DeviceType {
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Device {
-    pub id:DeviceID,
+    id:DeviceID,
     pub device_name:String,
     pub device_type:DeviceType,
     pub device_os:String,
@@ -24,6 +24,9 @@ pub struct Device {
 impl Device {
     pub fn new(id:DeviceID, device_name:String, device_type:DeviceType, device_os:String, device_model:String) -> Self {
         Self { id, device_name, device_type, device_os, device_model }
+    }
+    pub fn get_id(&self) -> DeviceID {
+        self.id
     }
 }
 
