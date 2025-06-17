@@ -47,6 +47,9 @@ impl Chat {
     pub fn get_session_id(&self) -> &Option<SessionID> {
         &self.session_id
     }
+    pub fn get_id(&self) -> ChatID {
+        self.id
+    }
     pub fn add_to_context(&mut self, new_context:ContextPart) {
         let waiting_on_response = 
         match new_context.get_position() {
@@ -115,5 +118,13 @@ impl Chats {
         chat.id = id;
         self.all_chats.insert(id, chat);
         id
+    }
+    pub fn get_last_chat(&self) -> Option<&Chat> {
+        if self.all_chats.len() > 0 {
+            self.all_chats.get(&(self.all_chats.len() - 1))
+        }
+        else {
+            None
+        }
     }
 }

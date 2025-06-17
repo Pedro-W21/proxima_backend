@@ -23,6 +23,9 @@ impl AccessMode {
     pub fn get_tags(&self) -> &HashSet<TagID> {
         &self.tags
     }
+    pub fn get_id(&self) -> AccessModeID {
+        self.id
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]

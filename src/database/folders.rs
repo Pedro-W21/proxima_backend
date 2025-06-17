@@ -23,7 +23,8 @@ pub struct ProxFolder {
     tags:HashSet<TagID>,
     desc:Option<Description>,
     name:String,
-    last_updated:Option<DateTime<Utc>>,
+    added_at:DateTime<Utc>,
+    last_updated:DateTime<Utc>,
     recursive:RecursivityLevel,
     children:Vec<FolderID>,
     parent:Option<FolderID>,
@@ -34,7 +35,7 @@ pub struct ProxFolder {
 
 impl ProxFolder {
     pub fn new_empty(id:FolderID, absolute_path:AbsolutePath, parent:Option<FolderID>, recursive:RecursivityLevel, from_device:DeviceID) -> Self {
-        Self {access_modes:HashSet::from([0]), id, from_device, absolute_path:absolute_path.clone(), tags: HashSet::with_capacity(4), desc: None, name:absolute_path.file_name().unwrap().to_string_lossy().to_string() , last_updated:None, recursive, children: Vec::with_capacity(4), parent, files: Vec::with_capacity(4) }
+        Self {access_modes:HashSet::from([0]), added_at:Utc::now(), id, from_device, absolute_path:absolute_path.clone(), tags: HashSet::with_capacity(4), desc: None, name:absolute_path.file_name().unwrap().to_string_lossy().to_string() , last_updated:Utc::now(), recursive, children: Vec::with_capacity(4), parent, files: Vec::with_capacity(4) }
     }
     pub fn get_id(&self) -> FolderID {
         self.id
@@ -250,6 +251,14 @@ impl Folders {
             None => {
                 Ok(id)
             }
+        }
+    }
+    pub fn get_last_folder(&self) -> Option<&ProxFolder> {
+        if self.all_folders.len() > 0 {
+            self.all_folders.get(&(self.all_folders.len() - 1))
+        }
+        else {
+            None
         }
     }
     pub fn add_folder_raw(&mut self, mut folder:ProxFolder) -> FolderID {

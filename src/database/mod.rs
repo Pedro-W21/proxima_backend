@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet}, path::PathBuf, sync::{mpmc::{channel, Receiver, Sender}, mpsc::SendError}, thread};
+use std::{collections::{HashMap, HashSet, VecDeque}, path::PathBuf, sync::{mpmc::{channel, Receiver, Sender}, mpsc::SendError}, thread};
 
 use access_modes::{AccessMode, AccessModeID, AccessModes};
 use chats::{Chat, ChatID, Chats};
@@ -11,6 +11,8 @@ use rand::{rngs::StdRng, RngCore, SeedableRng};
 use serde::{Deserialize, Serialize};
 use tags::{Tag, TagID, Tags};
 use user::{PersonalInformation, UserData};
+
+use crate::{ai_interaction::create_prompt::{get_agent_prompt_context, AgentPrompt}, database::context::WholeContext};
 
 pub mod tags;
 pub mod folders;
@@ -75,6 +77,8 @@ pub enum DatabaseItemID {
 #[derive(Clone, Serialize, Deserialize)]
 pub enum DatabaseInfoRequest {
     NumbersOfItems,
+    LatestItems,
+    UnknownUpdates {access_key:String},
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -84,7 +88,8 @@ pub enum DatabaseRequestVariant {
     Info(DatabaseInfoRequest),
     Add(DatabaseItem),
     NewAuthKey,
-    VerifyAuthKey(String)
+    VerifyAuthKey(String),
+    GetAgentPrompt(AgentPrompt), // >:(
 }
 
 pub struct DatabaseRequest {
@@ -106,7 +111,9 @@ impl DatabaseRequest {
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub enum DatabaseInfoReply {
-    NumbersOfItems {devices:usize, chats:usize, folders:usize, files:usize, tags:usize, access_modes:usize}
+    NumbersOfItems {devices:usize, chats:usize, folders:usize, files:usize, tags:usize, access_modes:usize},
+    LatestItems {items:Vec<Option<DatabaseItem>>},
+    UnknownUpdates {updates:Vec<(DatabaseItemID, DatabaseItem)>},
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -117,25 +124,30 @@ pub enum DatabaseReplyVariant {
     CorrectAuth,
     WrongAuth,
     NewAuth(String),
-    Info(DatabaseInfoReply)
+    Info(DatabaseInfoReply),
+    ConstructedPrompt(WholeContext)
 }
 
 pub struct DatabaseReply {
     pub variant:DatabaseReplyVariant
 }
 
+pub struct ClientSessionData {
+    pending_updates:VecDeque<(DatabaseItemID, DatabaseItem)>,
+}
+
 pub struct DatabaseHandler {
     priority_request_rcv:Receiver<DatabaseRequest>,
     request_rcv:Receiver<DatabaseRequest>,
     database:ProxDatabase,
-    auth_sessions:HashSet<String>,
+    auth_sessions:HashMap<String, ClientSessionData>,
     auth_sessions_rng:StdRng
 }
 
 
 impl DatabaseHandler {
     pub fn new(priority_request_rcv:Receiver<DatabaseRequest>, request_rcv:Receiver<DatabaseRequest>, database:ProxDatabase) -> Self {
-        Self { priority_request_rcv, request_rcv, database, auth_sessions:HashSet::with_capacity(32), auth_sessions_rng:StdRng::from_os_rng() }
+        Self { priority_request_rcv, request_rcv, database, auth_sessions:HashMap::with_capacity(32), auth_sessions_rng:StdRng::from_os_rng() }
     }
     pub fn handling_loop(&mut self) {
         loop {
@@ -196,11 +208,11 @@ impl DatabaseHandler {
     }
     fn handle_new_auth_key(&mut self, response_sender:Sender<DatabaseReply>) -> Result<(), SendError<DatabaseReply>> {
         let new_auth = self.auth_sessions_rng.next_u64().to_string();
-        self.auth_sessions.insert(new_auth.clone());
+        self.auth_sessions.insert(new_auth.clone(), ClientSessionData { pending_updates: VecDeque::with_capacity(128) });
         response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::NewAuth(new_auth)})
     }
     fn handle_auth_verification(&mut self, auth:String, response_sender:Sender<DatabaseReply>) -> Result<(), SendError<DatabaseReply>> {
-        if self.auth_sessions.contains(&auth) {
+        if self.auth_sessions.contains_key(&auth) {
             response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::CorrectAuth})
         }
         else { 
@@ -221,8 +233,30 @@ impl DatabaseHandler {
                         access_modes: self.database.access_modes.get_modes().len()
                     }
                 ) })
+            },
+            DatabaseInfoRequest::LatestItems => {
+                response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::Info(
+                DatabaseInfoReply::LatestItems { items: vec![
+                    self.database.devices.get_devices().last().map(|item| {DatabaseItem::Device(item.clone())}),
+                    self.database.access_modes.get_modes().last().map(|item| {DatabaseItem::AccessMode(item.clone())}),
+                    self.database.chats.get_last_chat().map(|item| {DatabaseItem::Chat(item.clone())}),
+                    self.database.folders.get_last_folder().map(|item| {DatabaseItem::Folder(item.clone())}),
+                    self.database.files.get_last_file().map(|item| {DatabaseItem::File(item.clone())}),
+                    self.database.tags.get_tags().last().map(|item| {DatabaseItem::Tag(item.clone())}),
+                    Some(DatabaseItem::UserData(self.database.personal_info.user_data.clone())),
+
+                ] }
+                ) })
+            },
+            DatabaseInfoRequest::UnknownUpdates { access_key } => {
+                response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::Info(
+                DatabaseInfoReply::UnknownUpdates { updates: self.auth_sessions.get_mut(&access_key).unwrap().pending_updates.drain(..).collect() }
+                ) })
             }
         }
+    }
+    fn handle_agent_prompt(&self, agent_prompt:AgentPrompt, response_sender:Sender<DatabaseReply>) -> Result<(), SendError<DatabaseReply>> {
+        response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ConstructedPrompt(get_agent_prompt_context(&self.database, agent_prompt))})
     }
     fn handle_request(&mut self, request:DatabaseRequest) -> Result<(), SendError<DatabaseReply>> {
         match request.variant {
@@ -231,7 +265,9 @@ impl DatabaseHandler {
             DatabaseRequestVariant::Update(item) => self.handle_update_request(item, request.response_sender),
             DatabaseRequestVariant::NewAuthKey => self.handle_new_auth_key(request.response_sender),
             DatabaseRequestVariant::VerifyAuthKey(auth) => self.handle_auth_verification(auth, request.response_sender),
-            DatabaseRequestVariant::Info(info_request) => self.handle_info_request(info_request, request.response_sender)
+            DatabaseRequestVariant::Info(info_request) => self.handle_info_request(info_request, request.response_sender),
+            DatabaseRequestVariant::GetAgentPrompt(agent_prompt) => self.handle_agent_prompt(agent_prompt, request.response_sender),
+
         }
     }
 }

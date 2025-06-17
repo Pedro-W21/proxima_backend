@@ -72,6 +72,14 @@ impl WholeContext {
     pub fn new(parts:Vec<ContextPart>) -> Self {
         Self { parts }
     }
+    pub fn get_whole_system_prompt(&self) -> WholeContext {
+        let system = self.parts.iter().filter_map(|part| { match part.get_position() {ContextPosition::System => Some(part.clone()), _ => None} }).collect::<Vec<ContextPart>>();
+        WholeContext { parts: system }
+    }
+    pub fn get_everything_but_system_prompt(&self) -> WholeContext {
+        let system = self.parts.iter().filter_map(|part| { match part.get_position() {ContextPosition::System => None, _ => Some(part.clone())} }).collect::<Vec<ContextPart>>();
+        WholeContext { parts: system }
+    }
     pub fn merge_with(mut self, mut other:WholeContext) -> WholeContext {
         self.parts.append(&mut other.parts);
         Self { parts: self.parts }

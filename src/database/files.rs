@@ -1,5 +1,6 @@
 use std::{collections::HashSet, ffi::OsString, fs::{self, File}, io::Read};
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::{access_modes::AccessModeID, description::Description, devices::DeviceID, folders::{AbsolutePath, Folders, ProxFolder}, tags::TagID};
@@ -17,6 +18,8 @@ pub struct ProxFile {
     name:String,
     extension:Option<String>,
     from_device:DeviceID,
+    added_at:DateTime<Utc>,
+    last_modified:DateTime<Utc>,
     access_modes:HashSet<AccessModeID>,
 }
 
@@ -116,7 +119,7 @@ impl Files {
                         None => None
                     };
                     let id = self.take_next_file();
-                    self.all_files.push(ProxFile {access_modes:HashSet::from([0]), id, absolute_path:file.absolute_path, tags:HashSet::new(), desc:None, name, extension, from_device:file.from_device});
+                    self.all_files.push(ProxFile {access_modes:HashSet::from([0]), id, absolute_path:file.absolute_path, tags:HashSet::new(), desc:None, name, extension, from_device:file.from_device, added_at:Utc::now(), last_modified:Utc::now()});
                     match in_folder {
                         Some(fold) => {
                             fold.add_file_child(id);
@@ -134,7 +137,10 @@ impl Files {
         
     }
     pub fn remove_file(&mut self, id:FileID, folders:&mut Folders) {
-        
+        todo!("implement ProxFile removal")
+    }
+    pub fn get_last_file(&self) -> Option<&ProxFile> {
+        self.all_files.last()
     }
     pub fn add_file_raw(&mut self, mut file:ProxFile) -> FileID {
         let file_id = self.all_files.len();

@@ -32,7 +32,7 @@ impl<B:BackendAPI> RequestHandler<B> {
     pub async fn respond(mut self) {
         match self.request_variant {
             EndpointRequestVariant::Continue => (),
-            EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type } => {
+            EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type, personal_context } => {
                 println!("in response cycle");
                 let id = self.backend.send_new_prompt(whole_context, session_type);
                 println!("Sent prompt !!!");
@@ -46,7 +46,7 @@ impl<B:BackendAPI> RequestHandler<B> {
     pub async fn streaming_respond(mut self) {
         match self.request_variant {
             EndpointRequestVariant::Continue => (),
-            EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type } => {
+            EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type, personal_context } => {
                 let id = self.backend.send_new_prompt(whole_context, session_type);
                 let response = self.backend.get_response_to_latest_prompt_for_blocking(id);
             }
@@ -98,7 +98,7 @@ impl<B:BackendAPI + Send + 'static> AIEndpoint<B> {
     pub async fn handle_request(&mut self, request:EndpointRequest) {
         match request.variant.clone() {
             EndpointRequestVariant::Continue => (),
-            EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type } => {
+            EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type, personal_context } => {
                 if streaming {
                     let db_send_clone = self.database_sender.clone();
                     let response = request.response_tunnel.clone();

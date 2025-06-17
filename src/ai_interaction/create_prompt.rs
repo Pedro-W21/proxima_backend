@@ -1,13 +1,35 @@
 use std::{fs::File, io::Read, path::PathBuf};
 
-use crate::database::{context::{ContextData, ContextPart, ContextPosition, Prompt, WholeContext}, description::DescriptionTarget, ProxDatabase};
+use serde::{Deserialize, Serialize};
+
+use crate::database::{access_modes::AccessModeID, context::{ContextData, ContextPart, ContextPosition, Prompt, WholeContext}, description::DescriptionTarget, ProxDatabase};
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct AgentPrompt {
+    access_mode:AccessModeID,
+    prompt_type:AgentPromptType
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub enum AgentPromptType {
+    Description{desc_target:DescriptionTarget},
+    Tag{tag_target:WholeContext}
+}
+
+pub fn get_agent_prompt_context(database:&ProxDatabase,agent_prompt:AgentPrompt) -> WholeContext {
+    match agent_prompt.prompt_type {
+        AgentPromptType::Description { desc_target } => create_desc_prompt(database, desc_target, agent_prompt.access_mode),
+        AgentPromptType::Tag { tag_target } => create_tag_prompt(database, tag_target, agent_prompt.access_mode)
+    }
+}
 
 pub enum SystemPrompt {
     Description,
+    Tag,
     Action,
 }
 
-pub fn create_desc_prompt(database:&ProxDatabase, desc_target:DescriptionTarget) -> WholeContext {
+pub fn create_desc_prompt(database:&ProxDatabase, desc_target:DescriptionTarget, access_mode:AccessModeID) -> WholeContext {
     let system = get_system_prompt_for(SystemPrompt::Description).unwrap();
     let target_type = format!("    target_type:{},\n", match desc_target {
         DescriptionTarget::File(id) => "file",
@@ -42,21 +64,55 @@ pub fn create_desc_prompt(database:&ProxDatabase, desc_target:DescriptionTarget)
         }
     };
     let existing_tags = {
-        let all_tags = database.tags.get_tags();
+        let all_tags = database.tags.get_tags().iter().enumerate();
         let mut list_elements = String::new();
-        for tag in all_tags {
-            list_elements.push_str(format!("({}, {}, {}),", tag.get_name(), tag.get_desc().get_text(), 
-                match tag.get_parent() {
-                    Some(parent_id) => database.tags.get_tag_from_tagid(parent_id).unwrap().get_name(),
-                    None => "null"
-                }
-            ).as_str());
+        let access_mode_tags = database.access_modes.get_modes()[access_mode].get_tags();
+        for (i, tag) in all_tags {
+            if access_mode_tags.contains(&i) {
+                list_elements.push_str(format!("({}, {}, {}),", tag.get_name(), tag.get_desc().get_text(), 
+                    match tag.get_parent() {
+                        Some(parent_id) => database.tags.get_tag_from_tagid(parent_id).unwrap().get_name(),
+                        None => "null"
+                    }
+                ).as_str());
+            }
+            
         }
         list_elements = list_elements.trim_matches(',').to_string();
         format!("    existing_tags:[{}],\n", list_elements)
     };
     let user_description = format!("    user_description:\"{}\",\n", database.personal_info.user_data.get_desc().get_text().clone());
     let special = ContextPart::new(vec![ContextData::Text(format!("{{{}{}{}{}}}", target_type,target_data, existing_tags, user_description))], ContextPosition::User);
+    WholeContext::new(vec![
+        system,
+        special
+    ])
+}
+
+pub fn create_tag_prompt(database:&ProxDatabase, tagging_target:WholeContext, access_mode:AccessModeID) -> WholeContext {
+    let system = get_system_prompt_for(SystemPrompt::Description).unwrap();
+    let system_prompt = format!("system_prompt: \"{}\",", tagging_target.get_whole_system_prompt().concatenate_into_single_part().data_to_text().concat());
+    let chat_data = format!("chat_data: \"{}\",", tagging_target.get_everything_but_system_prompt().concatenate_into_single_part().data_to_text().concat());
+    let existing_tags = {
+        let all_tags = database.tags.get_tags().iter().enumerate();
+        let mut list_elements = String::new();
+        let access_mode_tags = database.access_modes.get_modes()[access_mode].get_tags();
+        for (i, tag) in all_tags {
+            if access_mode_tags.contains(&i) {
+                list_elements.push_str(format!("({}, {}, {}),", tag.get_name(), tag.get_desc().get_text(), 
+                    match tag.get_parent() {
+                        Some(parent_id) => database.tags.get_tag_from_tagid(parent_id).unwrap().get_name(),
+                        None => "null"
+                    }
+                ).as_str());
+            }
+            
+        }
+        list_elements = list_elements.trim_matches(',').to_string();
+        format!("    existing_tags:[{}],\n", list_elements)
+    };
+    let user_description = format!("    user_description:\"{}\",\n", database.personal_info.user_data.get_desc().get_text().clone());
+    let special = ContextPart::new(vec![ContextData::Text(format!("{{{}{}{}{}}}", system_prompt,chat_data, existing_tags, user_description))], ContextPosition::User);
     WholeContext::new(vec![
         system,
         special
@@ -70,6 +126,9 @@ pub fn get_system_prompt_for(case:SystemPrompt) -> Result<Prompt, ()> {
         },
         SystemPrompt::Action => {
             open_prompt_file(PathBuf::from("configuration/prompts/action.txt"), ContextPosition::System)
+        },
+        SystemPrompt::Tag => {
+            open_prompt_file(PathBuf::from("configuration/prompts/tag.txt"), ContextPosition::System)
         }
     }
 }

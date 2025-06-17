@@ -1,3 +1,5 @@
+use chrono::{DateTime, Utc};
+use html_parser::{Dom, Node};
 use serde::{Deserialize, Serialize};
 
 use super::description::Description;
@@ -9,6 +11,7 @@ pub struct Tag {
     number:TagID,
     name:String,
     desc:Description,
+    created_at:DateTime<Utc>,
     parent:Option<TagID>
 }
 
@@ -24,7 +27,7 @@ impl Tag {
     }
     
     pub fn new(number:TagID, name:String, desc:Description, parent:Option<TagID>) -> Self {
-        Self { number, name, desc, parent }
+        Self { number, name, desc, parent, created_at:Utc::now() }
     }
 }
 
@@ -70,7 +73,7 @@ impl Tags {
             None => ()
         }
         let tag_id = self.all_tags.len();
-        self.all_tags.push(Tag {number:self.all_tags.len(), name:new_tag.name, desc:new_tag.desc, parent:new_tag.parent});
+        self.all_tags.push(Tag {number:self.all_tags.len(), name:new_tag.name, desc:new_tag.desc, parent:new_tag.parent, created_at:Utc::now()});
         tag_id
     }
     pub fn add_tag_with_parent_name(&mut self, mut new_tag:NewTag, parent_name:Option<String>) -> TagID {
@@ -92,5 +95,47 @@ impl Tags {
     }
     pub fn get_tag_from_tagid(&self, id:TagID) -> Option<&Tag> {
         self.all_tags.get(id)
+    }
+}
+
+
+
+
+#[derive(Clone, Copy, Debug)]
+pub enum TaggingParsingError {
+    BadlyPlacedText,
+    UnparseableDOM,
+    IsCommented,
+    BadNumberOfNewTagArgs,
+    UnknownTag
+}
+
+pub fn parse_desc_response(text:String, tags:&mut Tags) -> Result<Vec<TagID>, TaggingParsingError> {
+    match Dom::parse(&text) {
+        Ok(parsed) => {
+            let mut recovered_errors = Vec::with_capacity(8);
+            let mut used_tags = Vec::with_capacity(16);
+            for child in parsed.children {
+                match child {
+                    Node::Element(elt) => {
+                        match elt.name.trim() {
+                            "Tagging" => {
+                                for tag in elt.children[0].text().unwrap().to_string().split("\n") {
+                                    match tags.get_tagid_of(tag.trim().to_string()) {
+                                        Some(id) => used_tags.push(id),
+                                        None => recovered_errors.push(TaggingParsingError::UnknownTag),
+                                    }
+                                }
+                            },
+                            _ => ()
+                        }
+                    },
+                    Node::Text(txt) => recovered_errors.push(TaggingParsingError::BadlyPlacedText),
+                    Node::Comment(com) => recovered_errors.push(TaggingParsingError::IsCommented)
+                }
+            }
+            Ok(used_tags)
+        },
+        Err(_) => Err(TaggingParsingError::UnparseableDOM)
     }
 }
