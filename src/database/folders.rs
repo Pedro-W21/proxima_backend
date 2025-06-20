@@ -20,17 +20,17 @@ pub type FolderID = usize;
 pub struct ProxFolder {
     id:FolderID,
     absolute_path:AbsolutePath,
-    tags:HashSet<TagID>,
+    pub tags:HashSet<TagID>,
     desc:Option<Description>,
     name:String,
     added_at:DateTime<Utc>,
     last_updated:DateTime<Utc>,
     recursive:RecursivityLevel,
-    children:Vec<FolderID>,
-    parent:Option<FolderID>,
-    files:Vec<FileID>,
+    pub children:Vec<FolderID>,
+    pub parent:Option<FolderID>,
+    pub files:Vec<FileID>,
     from_device:DeviceID,
-    access_modes:HashSet<AccessModeID>
+    pub access_modes:HashSet<AccessModeID>
 }
 
 impl ProxFolder {
@@ -110,7 +110,7 @@ impl NewFolder {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Folders {
     all_folders:HashMap<FolderID, ProxFolder>,
-    path_to_id_map:HashMap<AbsolutePath, FolderID>,
+    path_to_id_map:HashMap<(DeviceID,AbsolutePath), FolderID>,
     starting_points:HashSet<FolderID>,
     ignore_those_folders:HashSet<AbsolutePath>,
     ignore_those_folder_names:HashSet<String>,
@@ -124,6 +124,44 @@ impl Folders {
     }
     pub fn new() -> Self {
         Self { all_folders: HashMap::with_capacity(1024), starting_points:HashSet::with_capacity(1024), path_to_id_map:HashMap::with_capacity(1024), latest_id:0, ignore_those_folders:HashSet::with_capacity(1024),ignore_those_folder_names:HashSet::with_capacity(1024), ignore_those_file_extensions:HashSet::with_capacity(1024) }
+    }
+    pub fn insert_folder(&mut self, folder:ProxFolder) {
+        let id = folder.get_id();
+        for i in 0..self.all_folders.len() {
+            let mut folder = self.all_folders.remove(&i).unwrap();
+            for child_folder in folder.children.iter_mut() {
+                if *child_folder >= id {
+                    *child_folder = *child_folder + 1;
+                }
+            }
+            if folder.id >= id {
+                folder.id += 1;
+            }
+            match &mut folder.parent {
+                Some(parent) => if *parent >= id {
+                    *parent += 1;
+                },
+                None => ()
+            }
+            self.all_folders.insert((i+1), folder);
+        }
+        self.latest_id += 1;
+        for (path, old_id) in self.path_to_id_map.iter_mut() {
+            if *old_id >= id {
+                *old_id += 1;
+            }
+        }
+        let mut new_starts = HashSet::new();
+        for old_id in self.starting_points.iter() {
+            if *old_id >= id {
+                new_starts.insert(old_id + 1);
+            }
+            else {
+                new_starts.insert(*old_id);
+            }
+        }
+        self.starting_points = new_starts;
+        self.all_folders.insert(id, folder);
     }
     pub fn get_folder_mut(&mut self, folder:FolderID) -> &mut ProxFolder {
         self.all_folders.get_mut(&folder).unwrap()
@@ -164,12 +202,12 @@ impl Folders {
         self.starting_points.insert(id);
         Ok(id)
     }
-    pub fn get_folder_if_already_exists(&self, path:AbsolutePath) -> Option<FolderID> {
+    pub fn get_folder_if_already_exists(&self, path:(DeviceID, AbsolutePath)) -> Option<FolderID> {
         self.path_to_id_map.get(&path).copied().to_owned()
     }
     pub fn add_folder(&mut self, mut new_folder:NewFolder, parent_id:Option<FolderID>,files:&mut Files) -> Result<FolderID, Error> {
         if !self.ignore_those_folders.contains(&new_folder.absolute_path) && !self.ignore_those_folder_names.contains(&new_folder.absolute_path.file_name().unwrap().to_string_lossy().to_string().trim_matches('/').to_string()) {
-            let id = match self.get_folder_if_already_exists(new_folder.absolute_path.clone()) {
+            let id = match self.get_folder_if_already_exists((new_folder.from_device, new_folder.absolute_path.clone())) {
                 Some(folder_id) => {
                     let mut old_folder = self.all_folders.get_mut(&folder_id).unwrap();
                     if old_folder.parent.is_some() && old_folder.parent != parent_id {
@@ -181,7 +219,7 @@ impl Folders {
                 None => {
                     let id = self.take_next_folder();
                     self.all_folders.insert(id, ProxFolder::new_empty(id, new_folder.absolute_path.clone(), parent_id, new_folder.recursivity.clone(), new_folder.from_device));
-                    self.path_to_id_map.insert(new_folder.absolute_path.clone(), id);
+                    self.path_to_id_map.insert((new_folder.from_device, new_folder.absolute_path.clone()), id);
                     id
                 }
             };

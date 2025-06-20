@@ -14,7 +14,7 @@ pub enum DeviceType {
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Device {
-    id:DeviceID,
+    pub id:DeviceID,
     pub device_name:String,
     pub device_type:DeviceType,
     pub device_os:String,

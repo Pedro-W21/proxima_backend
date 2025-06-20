@@ -28,6 +28,9 @@ impl Tag {
     pub fn get_id(&self) -> TagID {
         self.number
     }
+    pub fn set_id(&mut self, id:TagID) {
+        self.number = id;
+    }
     
     pub fn new(number:TagID, name:String, desc:Description, parent:Option<TagID>) -> Self {
         Self { number, name, desc, parent, created_at:Utc::now() }
@@ -53,6 +56,9 @@ pub struct Tags {
 impl Tags {
     pub fn get_tags(&self) -> &Vec<Tag> {
         &self.all_tags
+    }
+    pub fn get_tags_mut(&mut self) -> &mut Vec<Tag> {
+        &mut self.all_tags
     }
     pub fn update_tag(&mut self, tag:Tag) {
         let num = tag.number;

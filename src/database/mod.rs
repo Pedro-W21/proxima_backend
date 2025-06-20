@@ -53,6 +53,140 @@ impl ProxDatabase {
             DescriptionTarget::Folder(id) => self.folders.get_folder_mut(id).add_desc_tags(desc, tags),
         }
     }
+    pub fn insert_access_mode(&mut self, access_mode:AccessMode) {
+        let id = access_mode.get_id();
+        self.access_modes.get_modes_mut().insert(id, access_mode);
+        for i in (id + 1)..self.access_modes.get_modes().len() {
+            self.access_modes.get_modes_mut()[i].set_id(i);
+        }
+        for i in 0..self.chats.get_chats().len() {
+            let mut new_set = HashSet::with_capacity(16);
+            let mut chat = self.chats.get_chats_mut().get_mut(&i).unwrap();
+            for access_mode_id in chat.access_modes.iter() {
+                if *access_mode_id >= id {
+                    new_set.insert(*access_mode_id + 1);
+                }
+                else {
+                    new_set.insert(*access_mode_id);
+                }
+            }
+            chat.access_modes = new_set;
+        }
+        for i in 0..self.files.len() {
+            let mut new_set = HashSet::with_capacity(16);
+            let mut file = self.files.get_file_mut(i);
+            for access_mode_id in file.access_modes.iter() {
+                if *access_mode_id >= id {
+                    new_set.insert(*access_mode_id + 1);
+                }
+                else {
+                    new_set.insert(*access_mode_id);
+                }
+            }
+            file.access_modes = new_set;
+        }
+        for i in 0..self.folders.number_of_folders() {
+            let mut new_set = HashSet::with_capacity(16);
+            let mut folder = self.folders.get_folder_mut(i);
+            for access_mode_id in folder.access_modes.iter() {
+                if *access_mode_id >= id {
+                    new_set.insert(*access_mode_id + 1);
+                }
+                else {
+                    new_set.insert(*access_mode_id);
+                }
+            }
+            folder.access_modes = new_set;
+        }
+    }
+
+    pub fn insert_tag(&mut self, tag:Tag) {
+        let id = tag.get_id();
+        self.tags.get_tags_mut().insert(id, tag);
+        for i in (id + 1)..self.tags.get_tags().len() {
+            self.tags.get_tags_mut()[i].set_id(i);
+        }
+        
+        for i in 0..self.chats.get_chats().len() {
+            let mut new_set = HashSet::with_capacity(16);
+            let mut chat = self.chats.get_chats_mut().get_mut(&i).unwrap();
+            for tag_id in chat.tags.iter() {
+                if *tag_id >= id {
+                    new_set.insert(*tag_id + 1);
+                }
+                else {
+                    new_set.insert(*tag_id);
+                }
+            }
+            chat.tags = new_set;
+        }
+        for i in 0..self.files.len() {
+            let mut new_set = HashSet::with_capacity(16);
+            let mut file = self.files.get_file_mut(i);
+            for tag_id in file.tags.iter() {
+                if *tag_id >= id {
+                    new_set.insert(*tag_id + 1);
+                }
+                else {
+                    new_set.insert(*tag_id);
+                }
+            }
+            file.tags = new_set;
+        }
+        for i in 0..self.folders.number_of_folders() {
+            let mut new_set = HashSet::with_capacity(16);
+            let mut folder = self.folders.get_folder_mut(i);
+            for tag_id in folder.tags.iter() {
+                if *tag_id >= id {
+                    new_set.insert(*tag_id + 1);
+                }
+                else {
+                    new_set.insert(*tag_id);
+                }
+            }
+            folder.tags = new_set;
+        }
+        for i in 0..self.access_modes.get_modes().len() {
+            let mut new_set = HashSet::with_capacity(16);
+            let mut access_mode = &mut self.access_modes.get_modes_mut()[i];
+            for tag_id in access_mode.tags.iter() {
+                if *tag_id >= id {
+                    new_set.insert(*tag_id + 1);
+                }
+                else {
+                    new_set.insert(*tag_id);
+                }
+            }
+            access_mode.tags = new_set;
+        }
+    }
+    pub fn insert_chat(&mut self, chat:Chat) {
+        let id = chat.get_id();
+        for i in (id..self.chats.get_chats().len()).rev() {
+            let mut chat = self.chats.get_chats_mut().remove(&i).unwrap();
+            chat.id = (i + 1);
+            self.chats.get_chats_mut().insert((i + 1), chat);
+        }
+        self.chats.get_chats_mut().insert(id, chat);
+    }
+    pub fn insert_file(&mut self, file:ProxFile) {
+        let id = file.get_id();
+        self.files.insert_file(file);
+        
+        for i in 0..self.folders.number_of_folders() {
+            let folder = self.folders.get_folder_mut(i);
+            for file in folder.files.iter_mut() {
+                if *file >= id {
+                    *file = *file + 1;
+                }
+            }
+        }
+    }
+    pub fn insert_folder(&mut self, folder:ProxFolder) {
+        let id = folder.get_id();
+        self.folders.insert_folder(folder);
+        
+    }
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub enum DatabaseItem {

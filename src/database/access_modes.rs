@@ -9,7 +9,7 @@ pub type AccessModeID = usize;
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AccessMode {
     id:AccessModeID,
-    tags:HashSet<TagID>,
+    pub tags:HashSet<TagID>,
     name:String
 }
 
@@ -19,6 +19,9 @@ impl AccessMode {
     }
     pub fn get_name(&self) -> &String {
         &self.name
+    }
+    pub fn set_id(&mut self, id:AccessModeID) {
+        self.id = id;
     }
     pub fn get_tags(&self) -> &HashSet<TagID> {
         &self.tags

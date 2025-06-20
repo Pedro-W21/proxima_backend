@@ -13,14 +13,14 @@ pub type FileID = usize;
 pub struct ProxFile {
     id:FileID,
     absolute_path:AbsolutePath,
-    tags:HashSet<TagID>,
+    pub tags:HashSet<TagID>,
     desc:Option<Description>,
     name:String,
     extension:Option<String>,
     from_device:DeviceID,
     added_at:DateTime<Utc>,
     last_modified:DateTime<Utc>,
-    access_modes:HashSet<AccessModeID>,
+    pub access_modes:HashSet<AccessModeID>,
 }
 
 impl ProxFile {
@@ -147,6 +147,12 @@ impl Files {
         file.id = file_id;
         self.all_files.push(file);
         file_id
+    }
+    pub fn insert_file(&mut self, file:ProxFile) {
+        self.all_files.insert(file.get_id(), file.clone());
+        for i in (file.get_id() + 1)..self.all_files.len() {
+            self.all_files[i].id = i;
+        }
     }
     pub fn get_file_by_path(&self, path:AbsolutePath) -> Option<FileID> {
         self.all_files.iter().find(|file| {file.absolute_path == path}).and_then(|file|{Some(file.id)})
