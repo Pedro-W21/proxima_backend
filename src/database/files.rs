@@ -17,7 +17,7 @@ pub struct ProxFile {
     desc:Option<Description>,
     name:String,
     extension:Option<String>,
-    from_device:DeviceID,
+    pub from_device:DeviceID,
     added_at:DateTime<Utc>,
     last_modified:DateTime<Utc>,
     pub access_modes:HashSet<AccessModeID>,

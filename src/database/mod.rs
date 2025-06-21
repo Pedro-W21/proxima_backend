@@ -187,6 +187,32 @@ impl ProxDatabase {
         self.folders.insert_folder(folder);
         
     }
+    pub fn insert_device(&mut self, device:Device) {
+        let id = device.id;
+        self.devices.get_devices_mut().insert(id, device);
+        for i in (id + 1)..self.devices.get_devices().len() {
+            self.devices.get_devices_mut()[i].id = i;
+        }
+        
+        for i in 0..self.chats.get_chats().len() {
+            let mut chat = self.chats.get_chats_mut().get_mut(&i).unwrap();
+            if chat.origin_device >= id {
+                chat.origin_device += 1;
+            }
+        }
+        for i in 0..self.files.len() {
+            let mut file = self.files.get_file_mut(i);
+            if file.from_device >= id {
+                file.from_device += 1;
+            }
+        }
+        for i in 0..self.folders.number_of_folders() {
+            let mut folder = self.folders.get_folder_mut(i);
+            if folder.from_device >= id {
+                folder.from_device += 1;
+            }
+        }
+    }
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub enum DatabaseItem {

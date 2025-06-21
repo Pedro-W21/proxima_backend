@@ -29,7 +29,7 @@ pub struct ProxFolder {
     pub children:Vec<FolderID>,
     pub parent:Option<FolderID>,
     pub files:Vec<FileID>,
-    from_device:DeviceID,
+    pub from_device:DeviceID,
     pub access_modes:HashSet<AccessModeID>
 }
 
