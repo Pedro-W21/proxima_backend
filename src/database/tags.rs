@@ -11,7 +11,7 @@ pub struct Tag {
     number:TagID,
     name:String,
     desc:Description,
-    created_at:DateTime<Utc>,
+    pub created_at:DateTime<Utc>,
     parent:Option<TagID>
 }
 

@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 pub type DeviceID = usize;
@@ -18,12 +19,13 @@ pub struct Device {
     pub device_name:String,
     pub device_type:DeviceType,
     pub device_os:String,
-    pub device_model:String
+    pub device_model:String,
+    pub added_on:DateTime<Utc>
 }
 
 impl Device {
     pub fn new(id:DeviceID, device_name:String, device_type:DeviceType, device_os:String, device_model:String) -> Self {
-        Self { id, device_name, device_type, device_os, device_model }
+        Self { id, device_name, device_type, device_os, device_model, added_on:Utc::now() }
     }
     pub fn get_id(&self) -> DeviceID {
         self.id

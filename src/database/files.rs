@@ -18,8 +18,8 @@ pub struct ProxFile {
     name:String,
     extension:Option<String>,
     pub from_device:DeviceID,
-    added_at:DateTime<Utc>,
-    last_modified:DateTime<Utc>,
+    pub added_at:DateTime<Utc>,
+    pub last_modified:DateTime<Utc>,
     pub access_modes:HashSet<AccessModeID>,
 }
 

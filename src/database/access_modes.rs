@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::tags::TagID;
@@ -10,12 +11,13 @@ pub type AccessModeID = usize;
 pub struct AccessMode {
     id:AccessModeID,
     pub tags:HashSet<TagID>,
+    pub added_on:DateTime<Utc>,
     name:String
 }
 
 impl AccessMode {
     pub fn new(id:AccessModeID, tags:HashSet<TagID>, name:String) -> Self {
-        Self { id, tags, name }
+        Self { id, tags, name, added_on:Utc::now() }
     }
     pub fn get_name(&self) -> &String {
         &self.name
@@ -38,7 +40,7 @@ pub struct AccessModes {
 
 impl AccessModes {
     pub fn new() -> Self {
-        Self { all_modes: vec![AccessMode {id:0, tags:HashSet::new(), name:String::from("global")}] }
+        Self { all_modes: vec![AccessMode {added_on:Utc::now(),id:0, tags:HashSet::new(), name:String::from("global")}] }
     }
     pub fn get_modes(&self) -> &Vec<AccessMode> {
         &self.all_modes

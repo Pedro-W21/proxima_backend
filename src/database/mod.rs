@@ -213,6 +213,66 @@ impl ProxDatabase {
             }
         }
     }
+    pub fn insert_or_update(&mut self, item:DatabaseItem) {
+        match item {
+            DatabaseItem::AccessMode(access_mode) => {
+                if self.access_modes.get_modes()[access_mode.get_id()].added_on == access_mode.added_on {
+                    self.access_modes.update_mode(access_mode);
+                }
+                else {
+                    self.insert_access_mode(access_mode);
+                }
+            },
+            DatabaseItem::Chat(chat) => {
+                let id = chat.get_id();
+                if self.chats.get_chats().get(&id).unwrap().start_date == chat.start_date {
+                    self.chats.get_chats_mut().insert(id, chat);
+                }
+                else {
+                    self.insert_chat(chat);
+                }
+            },
+            DatabaseItem::Device(device) => {
+                let id = device.get_id();
+                if self.devices.get_devices()[id].added_on == device.added_on {
+                    self.devices.get_devices_mut()[id] = device;
+                }
+                else {
+                    self.insert_device(device);
+                }
+            },
+            DatabaseItem::File(file) => {
+                let id = file.get_id();
+                if self.files.get_file_mut(id).added_at == file.added_at {
+                    *self.files.get_file_mut(id) = file;
+                }
+                else {
+                    self.insert_file(file);
+                }
+            },
+            DatabaseItem::Folder(folder) => {
+                let id = folder.get_id();
+                if self.folders.get_folder_mut(id).added_at == folder.added_at {
+                    *self.folders.get_folder_mut(id) = folder;
+                }  
+                else {
+                    self.insert_folder(folder);
+                }
+            },
+            DatabaseItem::Tag(tag) => {
+                let id = tag.get_id();
+                if self.tags.get_tags_mut()[id].created_at == tag.created_at {
+                    self.tags.get_tags_mut()[id] = tag;
+                }
+                else {
+                    self.insert_tag(tag);
+                }
+            },
+            DatabaseItem::UserData(user_data) => {
+                self.personal_info.user_data = user_data
+            }
+        }
+    }
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub enum DatabaseItem {

@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::{description::Description, tags::TagID};
@@ -9,7 +10,7 @@ pub struct PersonalInformation {
 
 impl PersonalInformation {
     pub fn new(pseudonym:String, password_hash:String) -> Self {
-        Self { user_data: UserData {password_hash,pseudonym:pseudonym.clone(), name:None, interests:Vec::with_capacity(100), current_description:Description::new(format!("The user is currently anonymous, called by the name : {}", pseudonym)) } }
+        Self { user_data: UserData {last_updated:Utc::now(),password_hash,pseudonym:pseudonym.clone(), name:None, interests:Vec::with_capacity(100), current_description:Description::new(format!("The user is currently anonymous, called by the name : {}", pseudonym)) } }
     }
 }
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -18,6 +19,7 @@ pub struct UserData {
     pub pseudonym:String,
     pub password_hash:String,
     interests:Vec<Interest>,
+    pub last_updated:DateTime<Utc>,
     current_description:Description
 }
 
