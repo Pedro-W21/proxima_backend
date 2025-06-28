@@ -11,7 +11,7 @@ pub type FileID = usize;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProxFile {
-    id:FileID,
+    pub id:FileID,
     absolute_path:AbsolutePath,
     pub tags:HashSet<TagID>,
     desc:Option<Description>,

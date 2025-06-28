@@ -18,7 +18,7 @@ pub type RelativePath = PathBuf;
 pub type FolderID = usize;
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProxFolder {
-    id:FolderID,
+    pub id:FolderID,
     absolute_path:AbsolutePath,
     pub tags:HashSet<TagID>,
     desc:Option<Description>,

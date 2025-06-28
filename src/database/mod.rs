@@ -286,6 +286,31 @@ impl ProxDatabase {
             }
         }
     }
+    pub fn insert_directly(&mut self, item:DatabaseItem) {
+        match item {
+            DatabaseItem::AccessMode(access_mode) => {
+                    self.insert_access_mode(access_mode);
+            },
+            DatabaseItem::Chat(chat) => {
+                    self.insert_chat(chat);
+            },
+            DatabaseItem::Device(device) => {
+                    self.insert_device(device);
+            },
+            DatabaseItem::File(file) => {
+                    self.insert_file(file);
+            },
+            DatabaseItem::Folder(folder) => {
+                    self.insert_folder(folder);
+            },
+            DatabaseItem::Tag(tag) => {
+                    self.insert_tag(tag);
+            },
+            DatabaseItem::UserData(user_data) => {
+                self.personal_info.user_data = user_data;
+            }
+        }
+    }
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub enum DatabaseItem {
@@ -308,6 +333,36 @@ impl DatabaseItem {
             Self::Folder(folder) => DatabaseItemID::Folder(folder.get_id()),
             Self::Tag(tag) => DatabaseItemID::Tag(tag.get_id()),
             Self::UserData(user_data) => DatabaseItemID::UserData
+        }
+    }
+    
+    pub fn set_id(&mut self, new_id:DatabaseItemID) {
+        match self {
+            Self::AccessMode(access_mode) => match new_id {
+                DatabaseItemID::AccessMode(id) => access_mode.set_id(id),
+                _ => panic!("Wrong kind of ID")
+            },
+            Self::Chat(chat) => match new_id {
+                DatabaseItemID::Chat(id) => chat.id = id,
+                _ => panic!("wrong kind of ID")
+            },
+            Self::Device(device) => match new_id {
+                DatabaseItemID::Device(id) => device.id = id,
+                _ => panic!("wrong kind of ID")
+            },
+            Self::File(file) => match new_id {
+                DatabaseItemID::File(id) => file.id = id,
+                _ => panic!("wrong kind of ID")
+            },
+            Self::Folder(folder) => match new_id {
+                DatabaseItemID::Folder(id) => folder.id = id,
+                _ => panic!("wrong kind of ID")
+            },
+            Self::Tag(tag) => match new_id {
+                DatabaseItemID::Tag(id) => tag.set_id(id),
+                _ => panic!("wrong kind of ID")
+            },
+            Self::UserData(user_data) => ()
         }
     }
 }
