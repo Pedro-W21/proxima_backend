@@ -1,4 +1,5 @@
 #![feature(mpmc_channel)]
+#![feature(step_trait)]
 
 use std::{path::PathBuf, sync::{mpmc::channel, Arc}};
 

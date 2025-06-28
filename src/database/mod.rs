@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet, VecDeque}, path::PathBuf, sync::{mpmc::{channel, Receiver, Sender}, mpsc::SendError}, thread};
+use std::{collections::{HashMap, HashSet, VecDeque}, iter::Step, path::PathBuf, sync::{mpmc::{channel, Receiver, Sender}, mpsc::SendError}, thread};
 
 use access_modes::{AccessMode, AccessModeID, AccessModes};
 use chats::{Chat, ChatID, Chats};
@@ -313,7 +313,7 @@ impl DatabaseItem {
 }
 
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DatabaseItemID {
     Device(DeviceID),
     Chat(ChatID),
@@ -322,6 +322,57 @@ pub enum DatabaseItemID {
     Tag(TagID),
     AccessMode(AccessModeID),
     UserData
+}
+
+impl Step for DatabaseItemID {
+    fn steps_between(start: &Self, end: &Self) -> (usize, Option<usize>) {
+        let start_id = match start {
+            DatabaseItemID::AccessMode(id) => *id,
+            DatabaseItemID::Chat(id) => *id,
+            DatabaseItemID::Device(id) => *id,
+            DatabaseItemID::File(id) => *id,
+            DatabaseItemID::Folder(id) => *id,
+            DatabaseItemID::Tag(id) => *id,
+            DatabaseItemID::UserData => 1
+        };
+        let end_id = match end {
+            DatabaseItemID::AccessMode(id) => *id,
+            DatabaseItemID::Chat(id) => *id,
+            DatabaseItemID::Device(id) => *id,
+            DatabaseItemID::File(id) => *id,
+            DatabaseItemID::Folder(id) => *id,
+            DatabaseItemID::Tag(id) => *id,
+            DatabaseItemID::UserData => 0
+        };
+        if start_id > end_id {
+            (usize::MAX, None)
+        }
+        else {
+            (end_id - start_id, Some(end_id - start_id))
+        }
+    }
+    fn forward_checked(start: Self, count: usize) -> Option<Self> {
+        match start {
+            DatabaseItemID::AccessMode(id) => Some(DatabaseItemID::AccessMode(id + 1)),
+            DatabaseItemID::Chat(id) => Some(DatabaseItemID::Chat(id + 1)),
+            DatabaseItemID::File(id) => Some(DatabaseItemID::File(id + 1)),
+            DatabaseItemID::Folder(id) => Some(DatabaseItemID::Folder(id + 1)),
+            DatabaseItemID::Device(id) => Some(DatabaseItemID::Device(id + 1)),
+            DatabaseItemID::Tag(id) => Some(DatabaseItemID::Tag(id + 1)),
+            DatabaseItemID::UserData => None,
+        }
+    }
+    fn backward_checked(start: Self, count: usize) -> Option<Self> {
+        match start {
+            DatabaseItemID::AccessMode(id) => Some(DatabaseItemID::AccessMode(id - 1)),
+            DatabaseItemID::Chat(id) => Some(DatabaseItemID::Chat(id - 1)),
+            DatabaseItemID::File(id) => Some(DatabaseItemID::File(id - 1)),
+            DatabaseItemID::Folder(id) => Some(DatabaseItemID::Folder(id - 1)),
+            DatabaseItemID::Device(id) => Some(DatabaseItemID::Device(id - 1)),
+            DatabaseItemID::Tag(id) => Some(DatabaseItemID::Tag(id - 1)),
+            DatabaseItemID::UserData => None,
+        }
+    }
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub enum DatabaseInfoRequest {
