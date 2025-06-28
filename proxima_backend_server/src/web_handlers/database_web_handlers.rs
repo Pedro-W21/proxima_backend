@@ -12,7 +12,7 @@ use proxima_backend::web_payloads::{DBPayload, DBResponse};
 
 pub async fn db_post_handler(payload: web::Json<DBPayload>, data: web::Data<Arc<ProximaHandler>>) -> impl Responder {
     if is_auth_right(payload.auth_key.clone(), data.clone()) {
-        let (request, recv) = DatabaseRequest::new(payload.request.clone());
+        let (request, recv) = DatabaseRequest::new(payload.request.clone(), Some(payload.auth_key.clone()));
         data.database.send_prio(request);
         let reply = recv.recv().unwrap();
         HttpResponse::Ok().json(DBResponse {reply:reply.variant})

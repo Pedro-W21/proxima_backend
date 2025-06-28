@@ -297,6 +297,22 @@ pub enum DatabaseItem {
     AccessMode(AccessMode),
     UserData(UserData)
 }
+
+impl DatabaseItem {
+    pub fn get_id(&self) -> DatabaseItemID {
+        match self {
+            Self::AccessMode(access_mode) => DatabaseItemID::AccessMode(access_mode.get_id()),
+            Self::Chat(chat) => DatabaseItemID::Chat(chat.get_id()),
+            Self::Device(device) => DatabaseItemID::Device(device.get_id()),
+            Self::File(file) => DatabaseItemID::File(file.get_id()),
+            Self::Folder(folder) => DatabaseItemID::Folder(folder.get_id()),
+            Self::Tag(tag) => DatabaseItemID::Tag(tag.get_id()),
+            Self::UserData(user_data) => DatabaseItemID::UserData
+        }
+    }
+}
+
+
 #[derive(Clone, Serialize, Deserialize)]
 pub enum DatabaseItemID {
     Device(DeviceID),
@@ -328,15 +344,17 @@ pub enum DatabaseRequestVariant {
 pub struct DatabaseRequest {
     response_sender:Sender<DatabaseReply>,
     variant:DatabaseRequestVariant,
+    auth_key:Option<String>,
 }
 
 impl DatabaseRequest {
-    pub fn new(variant:DatabaseRequestVariant) -> (Self, Receiver<DatabaseReply>) {
+    pub fn new(variant:DatabaseRequestVariant, auth_key:Option<String>) -> (Self, Receiver<DatabaseReply>) {
         let (response_sender, response_receiver) = channel();
         (
             Self {
                 variant,
-                response_sender
+                response_sender,
+                auth_key
             },
             response_receiver
         )
@@ -417,7 +435,17 @@ impl DatabaseHandler {
             DatabaseItemID::UserData => response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::UserData(self.database.personal_info.user_data.clone()))}),
         }
     }
-    fn handle_update_request(&mut self, item:DatabaseItem, response_sender:Sender<DatabaseReply>) -> Result<(), SendError<DatabaseReply>> {
+    fn handle_update_request(&mut self, item:DatabaseItem, response_sender:Sender<DatabaseReply>, auth_key:Option<String>) -> Result<(), SendError<DatabaseReply>> {
+        match auth_key {
+            Some(key) => for (user, data) in self.auth_sessions.iter_mut() {
+                if user != &key {
+                    data.pending_updates.push_back((item.get_id(), item.clone()));
+                }
+            },
+            None => for (user, data) in self.auth_sessions.iter_mut() {
+                data.pending_updates.push_back((item.get_id(), item.clone()));
+            }
+        }
         match item {
             DatabaseItem::Tag(tag) => {self.database.tags.update_tag(tag); response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted })},
             DatabaseItem::AccessMode(access_mode) => {self.database.access_modes.update_mode(access_mode); response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted })},
@@ -428,16 +456,28 @@ impl DatabaseHandler {
             DatabaseItem::UserData(user_data) => {self.database.personal_info.user_data = user_data; response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted })}
         }  
     }
-    fn handle_add_request(&mut self, item:DatabaseItem, response_sender:Sender<DatabaseReply>) -> Result<(), SendError<DatabaseReply>> {
-        match item {
-            DatabaseItem::Tag(tag) => {let id = self.database.tags.add_tag_raw(tag); response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Tag(id)) })},
-            DatabaseItem::AccessMode(access_mode) => {let id = self.database.access_modes.add_mode(access_mode); response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::AccessMode(id)) })},
-            DatabaseItem::Device(device) => {let id = self.database.devices.add_device(device); response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Device(id)) })},
-            DatabaseItem::Chat(chat) => {let id = self.database.chats.add_chat_raw(chat); response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Chat(id)) })},
-            DatabaseItem::File(file) => {let id = self.database.files.add_file_raw(file); response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::File(id)) })},
-            DatabaseItem::Folder(folder) => {let id = self.database.folders.add_folder_raw(folder); response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Folder(id)) })},
-            DatabaseItem::UserData(user_data) => {self.database.personal_info.user_data = user_data; response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::UserData) })}
+    fn handle_add_request(&mut self, item:DatabaseItem, response_sender:Sender<DatabaseReply>, auth_key:Option<String>) -> Result<(), SendError<DatabaseReply>> {
+        let s_item = item.clone();
+        let (res, id) = match item {
+            DatabaseItem::Tag(tag) => {let id = self.database.tags.add_tag_raw(tag); (response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Tag(id)) }), DatabaseItemID::Tag(id))},
+            DatabaseItem::AccessMode(access_mode) => {let id = self.database.access_modes.add_mode(access_mode); (response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::AccessMode(id)) }), DatabaseItemID::AccessMode(id))},
+            DatabaseItem::Device(device) => {let id = self.database.devices.add_device(device); (response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Device(id)) }), DatabaseItemID::Device(id))},
+            DatabaseItem::Chat(chat) => {let id = self.database.chats.add_chat_raw(chat); (response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Chat(id)) }), DatabaseItemID::Chat(id))},
+            DatabaseItem::File(file) => {let id = self.database.files.add_file_raw(file); (response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::File(id)) }), DatabaseItemID::File(id))},
+            DatabaseItem::Folder(folder) => {let id = self.database.folders.add_folder_raw(folder); (response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Folder(id)) }), DatabaseItemID::Folder(id))},
+            DatabaseItem::UserData(user_data) => {self.database.personal_info.user_data = user_data; (response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::UserData) }), DatabaseItemID::UserData)}
+        };
+        match auth_key {
+            Some(key) => for (user, data) in self.auth_sessions.iter_mut() {
+                if user != &key {
+                    data.pending_updates.push_back((id.clone(), s_item.clone()));
+                }
+            },
+            None => for (user, data) in self.auth_sessions.iter_mut() {
+                data.pending_updates.push_back((id.clone(), s_item.clone()));
+            }
         }
+        res
     }
     fn handle_new_auth_key(&mut self, response_sender:Sender<DatabaseReply>) -> Result<(), SendError<DatabaseReply>> {
         let new_auth = self.auth_sessions_rng.next_u64().to_string();
@@ -494,8 +534,8 @@ impl DatabaseHandler {
     fn handle_request(&mut self, request:DatabaseRequest) -> Result<(), SendError<DatabaseReply>> {
         match request.variant {
             DatabaseRequestVariant::Get(id) => self.handle_get_request(id, request.response_sender),
-            DatabaseRequestVariant::Add(item) => self.handle_add_request(item, request.response_sender),
-            DatabaseRequestVariant::Update(item) => self.handle_update_request(item, request.response_sender),
+            DatabaseRequestVariant::Add(item) => self.handle_add_request(item, request.response_sender, request.auth_key),
+            DatabaseRequestVariant::Update(item) => self.handle_update_request(item, request.response_sender, request.auth_key),
             DatabaseRequestVariant::NewAuthKey => self.handle_new_auth_key(request.response_sender),
             DatabaseRequestVariant::VerifyAuthKey(auth) => self.handle_auth_verification(auth, request.response_sender),
             DatabaseRequestVariant::Info(info_request) => self.handle_info_request(info_request, request.response_sender),
