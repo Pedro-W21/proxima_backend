@@ -438,6 +438,7 @@ pub enum DatabaseInfoRequest {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum DatabaseRequestVariant {
+    GetAll,
     Get(DatabaseItemID),
     Update(DatabaseItem),
     Info(DatabaseInfoRequest),
@@ -482,7 +483,8 @@ pub enum DatabaseReplyVariant {
     WrongAuth,
     NewAuth(String),
     Info(DatabaseInfoReply),
-    ConstructedPrompt(WholeContext)
+    ConstructedPrompt(WholeContext),
+    ReplyAll(ProxDatabase)
 }
 
 pub struct DatabaseReply {
@@ -637,6 +639,9 @@ impl DatabaseHandler {
     fn handle_agent_prompt(&self, agent_prompt:AgentPrompt, response_sender:Sender<DatabaseReply>) -> Result<(), SendError<DatabaseReply>> {
         response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ConstructedPrompt(get_agent_prompt_context(&self.database, agent_prompt))})
     }
+    fn handle_getall(&self, response_sender:Sender<DatabaseReply>) -> Result<(), SendError<DatabaseReply>> {
+        response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReplyAll(self.database.clone()) })
+    }
     fn handle_request(&mut self, request:DatabaseRequest) -> Result<(), SendError<DatabaseReply>> {
         match request.variant {
             DatabaseRequestVariant::Get(id) => self.handle_get_request(id, request.response_sender),
@@ -646,6 +651,7 @@ impl DatabaseHandler {
             DatabaseRequestVariant::VerifyAuthKey(auth) => self.handle_auth_verification(auth, request.response_sender),
             DatabaseRequestVariant::Info(info_request) => self.handle_info_request(info_request, request.response_sender),
             DatabaseRequestVariant::GetAgentPrompt(agent_prompt) => self.handle_agent_prompt(agent_prompt, request.response_sender),
+            DatabaseRequestVariant::GetAll => self.handle_getall(request.response_sender)
 
         }
     }
