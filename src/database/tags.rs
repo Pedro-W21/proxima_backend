@@ -9,10 +9,10 @@ pub type TagID = usize;
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Tag {
     number:TagID,
-    name:String,
-    desc:Description,
+    pub name:String,
+    pub desc:Description,
     pub created_at:DateTime<Utc>,
-    parent:Option<TagID>
+    pub parent:Option<TagID>
 }
 
 impl Tag {

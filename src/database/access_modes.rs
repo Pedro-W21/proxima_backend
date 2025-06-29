@@ -12,7 +12,7 @@ pub struct AccessMode {
     id:AccessModeID,
     pub tags:HashSet<TagID>,
     pub added_on:DateTime<Utc>,
-    name:String
+    pub name:String
 }
 
 impl AccessMode {
