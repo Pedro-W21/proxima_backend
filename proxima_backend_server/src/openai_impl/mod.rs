@@ -101,7 +101,7 @@ impl BackendAPI for OpenAIBackend {
         let sender_clone = self.task_sender.clone();
         let (sender_to_client, receiver_for_client) = channel();
         let completion = Box::pin( (async move || {
-            let mut receiver = ChatCompletion::builder(model_clone.as_str(), messages_clones).credentials(creds_clone.clone()).create_stream().await.unwrap();
+            let mut receiver = ChatCompletion::builder(model_clone.as_str(), messages_clones).max_tokens(10000_u16).credentials(creds_clone.clone()).create_stream().await.unwrap();
             let mut total = Vec::new();
             loop {
                 match receiver.blocking_recv() {
@@ -261,7 +261,7 @@ impl BackendAPI for OpenAIBackend {
                             let model_clone = self.model.clone();
                             let creds_clone = self.creds.clone();
                             let sender_clone = self.task_sender.clone();
-                            let completion = Box::pin( (async move || {sender_clone.send((ChatCompletion::builder(model_clone.as_str(), messages_clones).credentials(creds_clone).create().await, session_clones)).unwrap()})());
+                            let completion = Box::pin( (async move || {sender_clone.send((ChatCompletion::builder(model_clone.as_str(), messages_clones).max_tokens(10000_u16).credentials(creds_clone).create().await, session_clones)).unwrap()})());
                             self.tasks.write().unwrap().push(completion);
                         }
                     }
@@ -315,7 +315,7 @@ impl BackendAPI for OpenAIBackend {
         let model_clone = self.model.clone();
         let creds_clone = self.creds.clone();
         let sender_clone = self.task_sender.clone();
-        let completion = Box::pin( (async move || {sender_clone.send((ChatCompletion::builder(model_clone.as_str(), messages_clones).credentials(creds_clone).create().await, session_clones)).unwrap()})());
+        let completion = Box::pin( (async move || {sender_clone.send((ChatCompletion::builder(model_clone.as_str(), messages_clones).max_tokens(10000_u16).credentials(creds_clone).create().await, session_clones)).unwrap()})());
         {
             self.tasks.write().unwrap().push(completion);
             self.total_tasks += 1;
