@@ -119,7 +119,7 @@ pub enum TaggingParsingError {
     UnknownTag
 }
 
-pub fn parse_desc_response(text:String, tags:&mut Tags) -> Result<Vec<TagID>, TaggingParsingError> {
+pub fn parse_tagging_response(text:String, tags:&mut Tags) -> Result<Vec<TagID>, TaggingParsingError> {
     match Dom::parse(&text) {
         Ok(parsed) => {
             let mut recovered_errors = Vec::with_capacity(8);

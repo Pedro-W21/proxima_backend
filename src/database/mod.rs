@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet, VecDeque}, iter::Step, path::PathBuf, sync::{mpmc::{channel, Receiver, Sender}, mpsc::SendError}, thread};
+use std::{collections::{HashMap, HashSet, VecDeque}, iter::Step, path::PathBuf, sync::{mpmc::{channel, Receiver, Sender}, mpsc::{RecvTimeoutError, SendError}}, thread, time::Duration};
 
 use access_modes::{AccessMode, AccessModeID, AccessModes};
 use chats::{Chat, ChatID, Chats};
@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tags::{Tag, TagID, Tags};
 use user::{PersonalInformation, UserData};
 
-use crate::{ai_interaction::create_prompt::{get_agent_prompt_context, AgentPrompt}, database::context::WholeContext};
+use crate::{ai_interaction::create_prompt::{get_agent_prompt_context, AgentPrompt}, database::{context::WholeContext, loading_saving::{load_from_disk, save_to_disk}}};
 
 pub mod tags;
 pub mod folders;
@@ -38,11 +38,25 @@ pub struct ProxDatabase {
 }
 
 impl ProxDatabase {
+    pub fn from_parts(
+        files:Files,
+        folders:Folders,
+        chats:Chats,
+        tags:Tags,
+        personal_info:PersonalInformation,
+        database_folder:PathBuf,
+        devices:Devices,
+        access_modes:AccessModes
+    ) -> Self {
+        Self { files, folders, chats, tags, personal_info, database_folder, devices, access_modes }
+    }
     pub fn new(pseudonym:String, password_hash:String, database_folder:PathBuf) -> Self {
         if create_or_repair_database_folder_structure(database_folder.clone()) {
-
+            load_from_disk(database_folder.clone()).unwrap()
         }
-        Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder, chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new() }
+        else {
+            Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder, chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new() }
+        }
     }
     pub fn new_just_data(pseudonym:String, password_hash:String) -> ProxDatabase {
         Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder:PathBuf::from("a/a/a/a/a/a/a/a"), chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new() }
@@ -446,6 +460,7 @@ pub enum DatabaseRequestVariant {
     NewAuthKey,
     VerifyAuthKey(String),
     GetAgentPrompt(AgentPrompt), // >:(
+    Save
 }
 
 pub struct DatabaseRequest {
@@ -484,7 +499,15 @@ pub enum DatabaseReplyVariant {
     NewAuth(String),
     Info(DatabaseInfoReply),
     ConstructedPrompt(WholeContext),
-    ReplyAll(ProxDatabase)
+    ReplyAll(ProxDatabase),
+    Saved,
+    Error(DatabaseError)
+}
+
+
+#[derive(Clone, Serialize, Deserialize)]
+pub enum DatabaseError {
+    SavingError
 }
 
 pub struct DatabaseReply {
@@ -500,21 +523,25 @@ pub struct DatabaseHandler {
     request_rcv:Receiver<DatabaseRequest>,
     database:ProxDatabase,
     auth_sessions:HashMap<String, ClientSessionData>,
-    auth_sessions_rng:StdRng
+    auth_sessions_rng:StdRng,
+    changed_since_last_save:bool
 }
 
 
 impl DatabaseHandler {
     pub fn new(priority_request_rcv:Receiver<DatabaseRequest>, request_rcv:Receiver<DatabaseRequest>, database:ProxDatabase) -> Self {
-        Self { priority_request_rcv, request_rcv, database, auth_sessions:HashMap::with_capacity(32), auth_sessions_rng:StdRng::from_os_rng() }
+        Self { priority_request_rcv, request_rcv, database, auth_sessions:HashMap::with_capacity(32), auth_sessions_rng:StdRng::from_os_rng(), changed_since_last_save:true }
     }
     pub fn handling_loop(&mut self) {
         loop {
-            match self.priority_request_rcv.recv() {
+            match self.priority_request_rcv.recv_timeout(Duration::from_millis(30_000)) {
                 Ok(request) => {
                     self.handle_request(request);
                 },
-                Err(error) => panic!("Database access error : {}", error)
+                Err(error) => match error {
+                    RecvTimeoutError::Timeout => (),
+                    RecvTimeoutError::Disconnected => panic!("Error accessing the database, tunnel closed"),
+                }
             }
             loop {
                 if self.priority_request_rcv.is_empty() {
@@ -554,6 +581,7 @@ impl DatabaseHandler {
                 data.pending_updates.push_back((item.get_id(), item.clone()));
             }
         }
+        self.changed_since_last_save = true;
         match item {
             DatabaseItem::Tag(tag) => {self.database.tags.update_tag(tag); response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted })},
             DatabaseItem::AccessMode(access_mode) => {self.database.access_modes.update_mode(access_mode); response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted })},
@@ -565,6 +593,7 @@ impl DatabaseHandler {
         }  
     }
     fn handle_add_request(&mut self, item:DatabaseItem, response_sender:Sender<DatabaseReply>, auth_key:Option<String>) -> Result<(), SendError<DatabaseReply>> {
+        self.changed_since_last_save = true;
         let s_item = item.clone();
         let (res, id) = match item {
             DatabaseItem::Tag(tag) => {let id = self.database.tags.add_tag_raw(tag); (response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Tag(id)) }), DatabaseItemID::Tag(id))},
@@ -642,6 +671,27 @@ impl DatabaseHandler {
     fn handle_getall(&self, response_sender:Sender<DatabaseReply>) -> Result<(), SendError<DatabaseReply>> {
         response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReplyAll(self.database.clone()) })
     }
+    fn handle_save(&mut self, response_sender:Sender<DatabaseReply>) -> Result<(), SendError<DatabaseReply>> {
+        
+        if self.changed_since_last_save {
+            let db_clone = self.database.clone();
+            let dir_path = self.database.database_folder.clone();
+            thread::spawn(move || {
+                match save_to_disk(db_clone, dir_path) {
+                    Ok(saved) => response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::Saved }),
+                    Err(error) => response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::SavingError) }), 
+                }
+            });
+            self.changed_since_last_save = false;
+            Ok(())
+        }
+        else {
+            self.changed_since_last_save = false;
+            response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::Saved })
+        }
+
+        
+    }
     fn handle_request(&mut self, request:DatabaseRequest) -> Result<(), SendError<DatabaseReply>> {
         match request.variant {
             DatabaseRequestVariant::Get(id) => self.handle_get_request(id, request.response_sender),
@@ -651,7 +701,8 @@ impl DatabaseHandler {
             DatabaseRequestVariant::VerifyAuthKey(auth) => self.handle_auth_verification(auth, request.response_sender),
             DatabaseRequestVariant::Info(info_request) => self.handle_info_request(info_request, request.response_sender),
             DatabaseRequestVariant::GetAgentPrompt(agent_prompt) => self.handle_agent_prompt(agent_prompt, request.response_sender),
-            DatabaseRequestVariant::GetAll => self.handle_getall(request.response_sender)
+            DatabaseRequestVariant::GetAll => self.handle_getall(request.response_sender),
+            DatabaseRequestVariant::Save => self.handle_save(request.response_sender)
 
         }
     }
@@ -678,4 +729,18 @@ pub fn launch_database_thread(database:ProxDatabase) -> DatabaseSender {
         DatabaseHandler::new(prio_rcv, normal_rcv, database).handling_loop();
     });
     DatabaseSender { prio_queue:prio_send, normal_queue:normal_send }
+}
+
+pub fn launch_saving_thread(sender:DatabaseSender, timer:Duration) {
+    thread::spawn(move || {
+        loop {
+            thread::sleep(timer.clone());
+            let (request, receiver) = DatabaseRequest::new(DatabaseRequestVariant::Save, None);
+            sender.send_normal(request);
+            match receiver.recv() {
+                Ok(_) => (),
+                Err(_) => break
+            }
+        }
+    });
 }
