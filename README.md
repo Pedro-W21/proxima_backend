@@ -1,6 +1,8 @@
 # Proxima backend
 
-this is the backend server for the Proxima AI assistant, a personal, multi-device AI assistant and computer-use agent
+this is the backend server for the Proxima AI assistant, a personal, multi-device AI assistant and (in the future) a computer-use agent
+
+This is currently a very experimental project and is not meant to be used in any sort of production or user-facing setting, you have been warned
 
 ## Security
 
