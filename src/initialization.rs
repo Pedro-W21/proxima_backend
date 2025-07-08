@@ -29,7 +29,7 @@ pub fn initialize() -> InitializationData {
     loop {
         let username = ask_for_input("What is your username ? It can be any string of up to 100 utf-8 characters. (This will be what Proxima will call you by default)");
         if !username.trim().is_empty() && username.chars().collect::<Vec<char>>().len() < 100 {
-            init.username = username;
+            init.username = username.trim().to_string();
             break;
         }
         else {
@@ -39,7 +39,7 @@ pub fn initialize() -> InitializationData {
     loop {
         let password = ask_for_input("What is your password ? It can be any string of up to 100 utf-8 characters.");
         if !password.trim().is_empty() && password.chars().collect::<Vec<char>>().len() < 100 {
-            init.password_hash = password;
+            init.password_hash = password.trim().to_string();
             break;
         }
         else {
@@ -65,7 +65,7 @@ pub fn initialize() -> InitializationData {
     loop {
         let backend_url = ask_for_input("What is the OpenAI-compatible API URL ? This API cannot require an API key as of now.");
         if !backend_url.trim().is_empty() && backend_url.chars().collect::<Vec<char>>().len() < 300 {
-            init.backend_url = backend_url;
+            init.backend_url = backend_url.trim().to_string();
             break;
         }
         else {

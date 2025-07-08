@@ -20,12 +20,12 @@ pub mod openai_impl;
 #[actix_web::main]
 async fn main() {
     let initialization_data = initialize();
-    let database = proxima_backend::database::ProxDatabase::new(String::from("aaa"), String::from("aaa"), PathBuf::from("/home/pir/ia/proxima_testing_grounds"));
+    let database = proxima_backend::database::ProxDatabase::new(initialization_data.username, initialization_data.password_hash, initialization_data.proxima_path);
     let database_sender = launch_database_thread(database);
     launch_saving_thread(database_sender.clone(), std::time::Duration::from_millis(60_000));
     let p1 = channel();
     let p2 = channel();
-    let (endpoint_sender, handle) = launch_ai_endpoint_thread::<OpenAIBackend>((Credentials::new("SDQKJHSFKL","http://localhost:5001/v1/"), ChosenModel::from("RARA")), database_sender.clone(), p1.0, p1.1, p2.0, p2.1).await;
+    let (endpoint_sender, handle) = launch_ai_endpoint_thread::<OpenAIBackend>((Credentials::new("SDQKJHSFKL",&initialization_data.backend_url), ChosenModel::from("RARA")), database_sender.clone(), p1.0, p1.1, p2.0, p2.1).await;
     let handler = Arc::new(ProximaHandler {ai_endpoint:endpoint_sender, database:database_sender});
     let server = HttpServer::new(move || {
         App::new()
