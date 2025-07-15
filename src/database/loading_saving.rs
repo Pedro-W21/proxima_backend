@@ -10,6 +10,7 @@ const PREMADE_FILES:LazyLock<HashMap<String, Vec<u8>>> = LazyLock::new(|| {
             ("description_prompt".to_string(), Vec::from(include_bytes!("../../configuration/prompts/description.txt"))),
             ("system_prompt".to_string(), Vec::from(include_bytes!("../../configuration/prompts/system.txt"))),
             ("internal_action_prompt".to_string(), Vec::from(include_bytes!("../../configuration/prompts/action.txt"))),
+            ("local_memory_prompt".to_string(), Vec::from(include_bytes!("../../configuration/prompts/tool_prompts/local_memory.txt"))),
             ("folders".to_string(), serde_json::to_string(&Folders::new()).unwrap().as_bytes().to_vec()),
             ("files".to_string(), serde_json::to_string(&Files::new()).unwrap().as_bytes().to_vec()),
             ("chats".to_string(), serde_json::to_string(&Chats::new()).unwrap().as_bytes().to_vec()),
@@ -26,6 +27,7 @@ const FOLDER_STRUCTURE:LazyLock<HashMap<String, PathBuf>> = LazyLock::new(|| {
         [
             ("database".to_string(), PathBuf::from("personal_data/database/")),
             ("prompts".to_string(), PathBuf::from("configuration/prompts/")),
+            ("tool_prompts".to_string(), PathBuf::from("configuration/prompts/tool_prompts")),
             ("description_prompt".to_string(), PathBuf::from("configuration/prompts/description.txt")),
             ("system_prompt".to_string(), PathBuf::from("configuration/prompts/system.txt")),
             ("internal_action_prompt".to_string(), PathBuf::from("configuration/prompts/action.txt")),

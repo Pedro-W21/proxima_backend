@@ -2,7 +2,7 @@ use std::sync::mpmc::{channel, sync_channel, Receiver, Sender};
 
 use serde::{Deserialize, Serialize};
 
-use crate::database::{access_modes::AccessModeID, chats::SessionType, context::{ContextData, ContextPart, ContextPosition, Prompt, WholeContext}};
+use crate::{ai_interaction::settings::ChatSettings, database::{access_modes::AccessModeID, chats::SessionType, context::{ContextData, ContextPart, ContextPosition, Prompt, WholeContext}}};
 
 
 
@@ -26,15 +26,10 @@ impl EndpointRequest {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum EndpointRequestVariant {
-    RespondToFullPrompt{whole_context:WholeContext, streaming:bool, session_type:SessionType, personal_context:Option<PersonalContextSettings>},
+    RespondToFullPrompt{whole_context:WholeContext, streaming:bool, session_type:SessionType, chat_settings:Option<ChatSettings>},
     Continue,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct PersonalContextSettings {
-    system_prompt:ContextPart,
-    access_mode:AccessModeID
-}
 
 pub struct EndpointResponse {
     pub variant:EndpointResponseVariant
@@ -44,5 +39,6 @@ pub enum EndpointResponseVariant {
     StartStream(ContextData, ContextPosition),
     ContinueStream(ContextData),
     EndStream(ContextData),
-    Block(ContextPart)
+    Block(ContextPart),
+    MultiTurnBlock(WholeContext)
 }

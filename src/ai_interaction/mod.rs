@@ -3,12 +3,14 @@ use std::{sync::mpmc::{channel, Receiver, Sender}, thread::{self, JoinHandle}};
 use backend_api::BackendAPI;
 use endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponse, EndpointResponseVariant};
 
-use crate::database::{chats::SessionType, DatabaseRequest, DatabaseSender};
+use crate::{ai_interaction::tools::{handle_tool_calling_response, is_valid_tool_calling_response}, database::{chats::SessionType, DatabaseRequest, DatabaseSender}};
 
 pub mod endpoint_api;
 pub mod ai_response;
 pub mod backend_api;
 pub mod create_prompt;
+pub mod tools;
+pub mod settings;
 
 pub struct AIEndpoint<B:BackendAPI> {
     backend_conn:B::ConnData,
@@ -32,21 +34,58 @@ impl<B:BackendAPI> RequestHandler<B> {
     pub async fn respond(mut self) {
         match self.request_variant {
             EndpointRequestVariant::Continue => (),
-            EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type, personal_context } => {
-                println!("in response cycle");
-                let id = self.backend.send_new_prompt(whole_context, session_type);
-                println!("Sent prompt !!!");
-                let response = self.backend.get_response_to_latest_prompt_for(id).await;
-                println!("got response");
-                self.response_sender.send(EndpointResponse { variant: EndpointResponseVariant::Block(response) }).unwrap();
-                println!("Sent back response");
+            EndpointRequestVariant::RespondToFullPrompt { mut whole_context, streaming, session_type, chat_settings } => {
+                match chat_settings {
+                    Some(settings) => {
+                        println!("in settings response cycle");
+                        let id = self.backend.send_new_prompt(whole_context.clone(), session_type);
+                        println!("Sent prompt !!!");
+                        let mut response = self.backend.get_response_to_latest_prompt_for(id).await;
+                        
+                        match settings.get_tools() {
+                            Some(tools) => {
+                                let mut new_tools = tools.clone();
+                                while !is_valid_tool_calling_response(&response) {
+                                    let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone());
+                                    whole_context.add_part(response.clone());
+                                    whole_context.add_part(added_context);
+                                    whole_context.add_part(new_tools.get_tool_data_insert());
+                                    new_tools = output_tools;
+                                    println!("in settings response cycle");
+                                    let id = self.backend.send_new_prompt(whole_context.clone(), session_type);
+                                    println!("Sent prompt !!!");
+                                    response = self.backend.get_response_to_latest_prompt_for(id).await;
+                                }
+                                whole_context.add_part(response);
+                                println!("got response");
+                                self.response_sender.send(EndpointResponse { variant: EndpointResponseVariant::MultiTurnBlock(whole_context) }).unwrap();
+                                println!("Sent back response");
+                            },
+                            None => {
+                                println!("got response");
+                                self.response_sender.send(EndpointResponse { variant: EndpointResponseVariant::Block(response) }).unwrap();
+                                println!("Sent back response");
+                            },
+                        }
+                    },
+                    None => {
+                        println!("in no-setting response cycle");
+                        let id = self.backend.send_new_prompt(whole_context, session_type);
+                        println!("Sent prompt !!!");
+                        let response = self.backend.get_response_to_latest_prompt_for(id).await;
+                        println!("got response");
+                        self.response_sender.send(EndpointResponse { variant: EndpointResponseVariant::Block(response) }).unwrap();
+                        println!("Sent back response");
+                    }
+                }
+                
             }
         }
     }
     pub async fn streaming_respond(mut self) {
         match self.request_variant {
             EndpointRequestVariant::Continue => (),
-            EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type, personal_context } => {
+            EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type, chat_settings } => {
                 let id = self.backend.send_new_prompt(whole_context, session_type);
                 let response = self.backend.get_response_to_latest_prompt_for_blocking(id);
             }
@@ -98,7 +137,7 @@ impl<B:BackendAPI + Send + 'static> AIEndpoint<B> {
     pub async fn handle_request(&mut self, request:EndpointRequest) {
         match request.variant.clone() {
             EndpointRequestVariant::Continue => (),
-            EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type, personal_context } => {
+            EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type, chat_settings} => {
                 if streaming {
                     let db_send_clone = self.database_sender.clone();
                     let response = request.response_tunnel.clone();

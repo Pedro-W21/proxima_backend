@@ -1,0 +1,33 @@
+<ToolDescription>
+
+<ToolName>
+Local Memory
+</ToolName>
+
+<ToolUse>
+Local Memory will insert a key-value store populated by yourself before every one of your responses to improve recall of information gathered in a single conversation, put anything you feel is relevant inside of it, and update what you need.
+Actions :
+- add : adds the value to the corresponding key if it doesn't exist, updates it otherwise
+    - the key must be provided as the first line of the <inputs></inputs> section
+    - the value is everything after the first line until the end of the section, there MUST be a value
+- update : updates the value at the corresponding key with the new value, errors if the key doesn't exist
+    - the key must be provided as the first line of the <inputs></inputs> section
+    - the new value is everything after the first line until the end of the section, there MUST be a value
+- remove : removes the value at the given key and the key with it, useful for keeping local memory concise, errors if the key doesn't exist
+    - the key must be provided as the first line of the <inputs></inputs> section
+
+Local memory is especially useful for long conversations, 
+</ToolUse>
+
+<ToolOutput>
+This tool outputs nothing as a call response in case of success, and an error otherwise
+
+The key-value store will be inserted before after every user prompt
+</ToolOutput>
+
+<ToolErrors>
+The following errors will appear when applicable :
+- NOT FOUND : a key update or removal could not find the key to act on
+</ToolErrors>
+
+</ToolDescription>
