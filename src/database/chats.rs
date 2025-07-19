@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::database::context::ContextPosition;
+use crate::database::{context::ContextPosition, configuration::{ChatConfiguration, ChatConfigID}};
 
 use super::{access_modes::AccessModeID, context::{ContextPart, WholeContext}, devices::DeviceID, tags::TagID};
 
@@ -34,7 +34,8 @@ pub struct Chat {
     pub waiting_on_response:bool,
     pub latest_message:DateTime<Utc>,
     pub tags:HashSet<TagID>,
-    pub access_modes:HashSet<AccessModeID>
+    pub access_modes:HashSet<AccessModeID>,
+    pub config:Option<ChatConfigID>
 }
 
 impl Chat {
@@ -93,7 +94,7 @@ impl Chats {
     pub fn get_chats_mut(&mut self) -> &mut HashMap<ChatID, Chat> {
         &mut self.all_chats
     }
-    pub fn create_chat(&mut self, starting_context:WholeContext, session_id:Option<SessionID>, origin_device:DeviceID) -> ChatID {
+    pub fn create_chat(&mut self, starting_context:WholeContext, session_id:Option<SessionID>, origin_device:DeviceID, config:Option<ChatConfigID>) -> ChatID {
         let id = self.all_chats.len();
         self.all_chats.insert(id, Chat {
             context: starting_context,
@@ -105,7 +106,8 @@ impl Chats {
             access_modes:HashSet::from([0]),
             latest_message:Utc::now(),
             start_date:Utc::now(),
-            waiting_on_response:true
+            waiting_on_response:true,
+            config
         });
         id
     }

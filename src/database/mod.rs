@@ -24,6 +24,7 @@ pub mod loading_saving;
 pub mod context;
 pub mod devices;
 pub mod access_modes;
+pub mod configuration;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProxDatabase {

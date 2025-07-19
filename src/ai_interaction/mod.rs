@@ -10,7 +10,6 @@ pub mod ai_response;
 pub mod backend_api;
 pub mod create_prompt;
 pub mod tools;
-pub mod settings;
 
 pub struct AIEndpoint<B:BackendAPI> {
     backend_conn:B::ConnData,

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::ai_interaction::settings::{ChatSetting, ChatSettings};
+use crate::database::configuration::{ChatSetting, ChatConfiguration};
 
 pub type Prompt = ContextPart;
 pub type Response = ContextPart;
@@ -85,7 +85,7 @@ pub struct WholeContext {
 }
 
 impl WholeContext {
-    pub fn new_with_all_settings(mut parts:Vec<ContextPart>, settings:&ChatSettings) -> Self {
+    pub fn new_with_all_settings(mut parts:Vec<ContextPart>, settings:&ChatConfiguration) -> Self {
         parts.insert(0, settings.get_full_system_prompt());
         let mut pre_self = Self {parts};
         pre_self.add_per_turn_settings(settings);
@@ -102,7 +102,7 @@ impl WholeContext {
         let system = self.parts.iter().filter_map(|part| { match part.get_position() {ContextPosition::System => None, _ => Some(part.clone())} }).collect::<Vec<ContextPart>>();
         WholeContext { parts: system }
     }
-    pub fn add_per_turn_settings(&mut self, settings:&ChatSettings) {
+    pub fn add_per_turn_settings(&mut self, settings:&ChatConfiguration) {
         for setting in settings.get_raw_settings() {
             match setting {
                 ChatSetting::PrePromptBeforeLatest(prompt) => self.parts.push(prompt.clone()),

@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use html_parser::{Dom, Element, Node};
 use serde::{Deserialize, Serialize};
 
-use crate::{ai_interaction::settings::ChatSetting, database::context::{ContextData, ContextPart, ContextPosition, WholeContext}};
+use crate::database::{context::{ContextData, ContextPart, ContextPosition, WholeContext}, configuration::ChatSetting};
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Tools {
     used_tools:Vec<ProximaTool>,
     tool_data:HashMap<ProximaTool, ProximaToolData>
@@ -212,7 +212,7 @@ impl ProximaTool {
         }
     }
 }
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ProximaToolData {
     LocalMemory(HashMap<String, String>)
 }

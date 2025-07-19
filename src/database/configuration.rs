@@ -1,15 +1,25 @@
+use std::collections::HashSet;
+
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::{ai_interaction::tools::{ProximaTool, Tools}, database::{access_modes::AccessModeID, context::{ContextPart, ContextPosition, WholeContext}}};
+use crate::{ai_interaction::tools::{ProximaTool, Tools}, database::{access_modes::AccessModeID, context::{ContextPart, ContextPosition, WholeContext}, tags::TagID}};
 
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct ChatSettings {
+pub type ChatConfigID = usize;
+
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
+pub struct ChatConfiguration {
+    pub id: ChatConfigID,
+    pub created_on:DateTime<Utc>,
+    pub last_updated:DateTime<Utc>,
     raw_settings:Vec<ChatSetting>,
-    tools:Option<Tools>
+    tools:Option<Tools>,
+    pub tags:HashSet<TagID>,
+    pub access_modes:HashSet<AccessModeID>,
 }   
 
-impl ChatSettings {
+impl ChatConfiguration {
     pub fn get_raw_settings(&self) -> &Vec<ChatSetting> {
         &self.raw_settings
     }
@@ -35,7 +45,7 @@ impl ChatSettings {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub enum ChatSetting {
     SystemPrompt(ContextPart),
     Temperature(f64),
@@ -45,4 +55,8 @@ pub enum ChatSetting {
     PrePrompt(ContextPart),
     PrePromptBeforeLatest(ContextPart),
     Tool(ProximaTool)
+}
+
+pub struct ChatConfigurations {
+    pub all_configs:Vec<ChatConfiguration>
 }
