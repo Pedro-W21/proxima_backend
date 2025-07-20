@@ -8,7 +8,7 @@ use crate::{ai_interaction::tools::{ProximaTool, Tools}, database::{access_modes
 
 pub type ChatConfigID = usize;
 
-#[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ChatConfiguration {
     pub id: ChatConfigID,
     pub created_on:DateTime<Utc>,
@@ -45,10 +45,10 @@ impl ChatConfiguration {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ChatSetting {
     SystemPrompt(ContextPart),
-    Temperature(f64),
+    Temperature(u64),
     ResponseTokenLimit(usize),
     MaxContextLength(usize),
     AccessMode(AccessModeID),
@@ -56,7 +56,36 @@ pub enum ChatSetting {
     PrePromptBeforeLatest(ContextPart),
     Tool(ProximaTool)
 }
-
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ChatConfigurations {
     pub all_configs:Vec<ChatConfiguration>
+}
+
+impl ChatConfigurations {
+    pub fn new() -> Self {
+        Self { all_configs: Vec::with_capacity(1000) }
+    }
+    pub fn add_config(&mut self, mut config:ChatConfiguration) -> ChatConfigID {
+        let id = self.all_configs.len();
+        config.id = id;
+        self.all_configs.push(config);
+        id
+    }
+    pub fn update_config(&mut self, config:ChatConfiguration) {
+        let id = config.id;
+        self.all_configs[id] = config;
+    }
+    pub fn insert_config(&mut self, config:ChatConfiguration) {
+        let id = config.id;
+        for config in &mut self.all_configs[id..] {
+            config.id += 1
+        }
+        self.all_configs.insert(id,config);
+    }
+    pub fn get_configs(&self) -> &Vec<ChatConfiguration> {
+        &self.all_configs
+    }
+    pub fn get_configs_mut(&mut self) -> &mut Vec<ChatConfiguration> {
+        &mut self.all_configs
+    }
 }

@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tags::{Tag, TagID, Tags};
 use user::{PersonalInformation, UserData};
 
-use crate::{ai_interaction::create_prompt::{get_agent_prompt_context, AgentPrompt}, database::{context::WholeContext, loading_saving::{load_from_disk, save_to_disk}}};
+use crate::{ai_interaction::create_prompt::{get_agent_prompt_context, AgentPrompt}, database::{configuration::{ChatConfigID, ChatConfiguration, ChatConfigurations}, context::WholeContext, loading_saving::{load_from_disk, save_to_disk}}};
 
 pub mod tags;
 pub mod folders;
@@ -36,6 +36,7 @@ pub struct ProxDatabase {
     pub database_folder:PathBuf,
     pub devices:Devices,
     pub access_modes:AccessModes,
+    pub configs:ChatConfigurations
 }
 
 impl ProxDatabase {
@@ -47,20 +48,21 @@ impl ProxDatabase {
         personal_info:PersonalInformation,
         database_folder:PathBuf,
         devices:Devices,
-        access_modes:AccessModes
+        access_modes:AccessModes,
+        configs:ChatConfigurations
     ) -> Self {
-        Self { files, folders, chats, tags, personal_info, database_folder, devices, access_modes }
+        Self { files, folders, chats, tags, personal_info, database_folder, devices, access_modes, configs }
     }
     pub fn new(pseudonym:String, password_hash:String, database_folder:PathBuf) -> Self {
         if create_or_repair_database_folder_structure(database_folder.clone()) {
             load_from_disk(database_folder.clone()).unwrap()
         }
         else {
-            Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder, chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new() }
+            Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder, chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new(), configs:ChatConfigurations::new() }
         }
     }
     pub fn new_just_data(pseudonym:String, password_hash:String) -> ProxDatabase {
-        Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder:PathBuf::from("a/a/a/a/a/a/a/a"), chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new() }
+        Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder:PathBuf::from("a/a/a/a/a/a/a/a"), chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new(), configs:ChatConfigurations::new() }
     }
     pub fn add_desc_and_tags(&mut self, desc_type:DescriptionTarget, desc:Description, tags:HashSet<TagID>) {
         match desc_type {
@@ -112,6 +114,19 @@ impl ProxDatabase {
                 }
             }
             folder.access_modes = new_set;
+        }
+        for i in 0..self.configs.get_configs().len() {
+            let mut new_set = HashSet::with_capacity(16);
+            let mut config = &mut self.configs.get_configs_mut()[i];
+            for access_mode_id in config.access_modes.iter() {
+                if *access_mode_id >= id {
+                    new_set.insert(*access_mode_id + 1);
+                }
+                else {
+                    new_set.insert(*access_mode_id);
+                }
+            }
+            config.access_modes = new_set;
         }
     }
 
@@ -174,6 +189,19 @@ impl ProxDatabase {
             }
             access_mode.tags = new_set;
         }
+        for i in 0..self.configs.get_configs().len() {
+            let mut new_set = HashSet::with_capacity(16);
+            let mut config = &mut self.configs.get_configs_mut()[i];
+            for tag_id in config.tags.iter() {
+                if *tag_id >= id {
+                    new_set.insert(*tag_id + 1);
+                }
+                else {
+                    new_set.insert(*tag_id);
+                }
+            }
+            config.tags = new_set;
+        }
     }
     pub fn insert_chat(&mut self, chat:Chat) {
         let id = chat.get_id();
@@ -227,6 +255,9 @@ impl ProxDatabase {
                 folder.from_device += 1;
             }
         }
+    }
+    pub fn insert_config(&mut self, config:ChatConfiguration) {
+        self.configs.insert_config(config);
     }
     pub fn insert_or_update(&mut self, item:DatabaseItem) -> bool { //true if updated, false if inserted
         match item {
@@ -295,6 +326,17 @@ impl ProxDatabase {
                     false
                 }
             },
+            DatabaseItem::ChatConfig(config) => {
+                let id = config.id;
+                if self.configs.get_configs()[id].created_on == config.created_on {
+                    self.configs.get_configs_mut()[id] = config;
+                    true
+                }
+                else {
+                    self.insert_config(config);
+                    false
+                }
+            }
             DatabaseItem::UserData(user_data) => {
                 self.personal_info.user_data = user_data;
                 true
@@ -321,6 +363,9 @@ impl ProxDatabase {
             DatabaseItem::Tag(tag) => {
                     self.insert_tag(tag);
             },
+            DatabaseItem::ChatConfig(config) => {
+                self.insert_config(config);
+            },
             DatabaseItem::UserData(user_data) => {
                 self.personal_info.user_data = user_data;
             }
@@ -335,7 +380,8 @@ pub enum DatabaseItem {
     File(ProxFile),
     Tag(Tag),
     AccessMode(AccessMode),
-    UserData(UserData)
+    UserData(UserData),
+    ChatConfig(ChatConfiguration)
 }
 
 impl DatabaseItem {
@@ -347,6 +393,7 @@ impl DatabaseItem {
             Self::File(file) => DatabaseItemID::File(file.get_id()),
             Self::Folder(folder) => DatabaseItemID::Folder(folder.get_id()),
             Self::Tag(tag) => DatabaseItemID::Tag(tag.get_id()),
+            Self::ChatConfig(config) => DatabaseItemID::ChatConfiguration(config.id),
             Self::UserData(user_data) => DatabaseItemID::UserData
         }
     }
@@ -377,6 +424,10 @@ impl DatabaseItem {
                 DatabaseItemID::Tag(id) => tag.set_id(id),
                 _ => panic!("wrong kind of ID")
             },
+            Self::ChatConfig(config) => match new_id {
+                DatabaseItemID::ChatConfiguration(id) => config.id = id,
+                _ => panic!("wrong kind of ID")
+            }
             Self::UserData(user_data) => ()
         }
     }
@@ -391,7 +442,8 @@ pub enum DatabaseItemID {
     File(FileID),
     Tag(TagID),
     AccessMode(AccessModeID),
-    UserData
+    UserData,
+    ChatConfiguration(ChatConfigID)
 }
 
 impl Step for DatabaseItemID {
@@ -403,6 +455,7 @@ impl Step for DatabaseItemID {
             DatabaseItemID::File(id) => *id,
             DatabaseItemID::Folder(id) => *id,
             DatabaseItemID::Tag(id) => *id,
+            DatabaseItemID::ChatConfiguration(id) => *id,
             DatabaseItemID::UserData => 1
         };
         let end_id = match end {
@@ -412,6 +465,7 @@ impl Step for DatabaseItemID {
             DatabaseItemID::File(id) => *id,
             DatabaseItemID::Folder(id) => *id,
             DatabaseItemID::Tag(id) => *id,
+            DatabaseItemID::ChatConfiguration(id) => *id,
             DatabaseItemID::UserData => 0
         };
         if start_id > end_id {
@@ -429,6 +483,7 @@ impl Step for DatabaseItemID {
             DatabaseItemID::Folder(id) => Some(DatabaseItemID::Folder(id + 1)),
             DatabaseItemID::Device(id) => Some(DatabaseItemID::Device(id + 1)),
             DatabaseItemID::Tag(id) => Some(DatabaseItemID::Tag(id + 1)),
+            DatabaseItemID::ChatConfiguration(id) => Some(DatabaseItemID::ChatConfiguration(id + 1)),
             DatabaseItemID::UserData => None,
         }
     }
@@ -440,6 +495,7 @@ impl Step for DatabaseItemID {
             DatabaseItemID::Folder(id) => Some(DatabaseItemID::Folder(id - 1)),
             DatabaseItemID::Device(id) => Some(DatabaseItemID::Device(id - 1)),
             DatabaseItemID::Tag(id) => Some(DatabaseItemID::Tag(id - 1)),
+            DatabaseItemID::ChatConfiguration(id) => Some(DatabaseItemID::ChatConfiguration(id - 1)),
             DatabaseItemID::UserData => None,
         }
     }
@@ -568,6 +624,7 @@ impl DatabaseHandler {
             DatabaseItemID::Chat(chatid) => response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Chat(self.database.chats.get_chats().get(&chatid).unwrap().clone()))}),
             DatabaseItemID::File(fileid) => response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::File(self.database.files.get_file_by_id(fileid).clone()))}),
             DatabaseItemID::Folder(folderid) => response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Folder(self.database.folders.get_folder_by_id(folderid).clone()))}),
+            DatabaseItemID::ChatConfiguration(configid) => response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::ChatConfig(self.database.configs.get_configs()[configid].clone()))}),
             DatabaseItemID::UserData => response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::UserData(self.database.personal_info.user_data.clone()))}),
         }
     }
@@ -590,6 +647,7 @@ impl DatabaseHandler {
             DatabaseItem::Chat(chat) => {self.database.chats.update_chat(chat); response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted })},
             DatabaseItem::File(file) => {let id = file.get_id(); *self.database.files.get_file_mut(id) = file; response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted })},
             DatabaseItem::Folder(folder) => {let id = folder.get_id();*self.database.folders.get_folder_mut(id) = folder; response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted })},
+            DatabaseItem::ChatConfig(config) => {self.database.configs.update_config(config); response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted })}
             DatabaseItem::UserData(user_data) => {self.database.personal_info.user_data = user_data; response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted })}
         }  
     }
@@ -603,6 +661,7 @@ impl DatabaseHandler {
             DatabaseItem::Chat(chat) => {let id = self.database.chats.add_chat_raw(chat); (response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Chat(id)) }), DatabaseItemID::Chat(id))},
             DatabaseItem::File(file) => {let id = self.database.files.add_file_raw(file); (response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::File(id)) }), DatabaseItemID::File(id))},
             DatabaseItem::Folder(folder) => {let id = self.database.folders.add_folder_raw(folder); (response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Folder(id)) }), DatabaseItemID::Folder(id))},
+            DatabaseItem::ChatConfig(config) => {let id = self.database.configs.add_config(config); (response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::ChatConfiguration(id)) }), DatabaseItemID::ChatConfiguration(id))},
             DatabaseItem::UserData(user_data) => {self.database.personal_info.user_data = user_data; (response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::UserData) }), DatabaseItemID::UserData)}
         };
         match auth_key {
