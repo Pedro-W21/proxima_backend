@@ -35,7 +35,8 @@ pub struct Chat {
     pub latest_message:DateTime<Utc>,
     pub tags:HashSet<TagID>,
     pub access_modes:HashSet<AccessModeID>,
-    pub config:Option<ChatConfigID>
+    pub config:Option<ChatConfigID>,
+    pub latest_used_config:Option<ChatConfiguration>
 }
 
 impl Chat {
@@ -94,7 +95,7 @@ impl Chats {
     pub fn get_chats_mut(&mut self) -> &mut HashMap<ChatID, Chat> {
         &mut self.all_chats
     }
-    pub fn create_chat(&mut self, starting_context:WholeContext, session_id:Option<SessionID>, origin_device:DeviceID, config:Option<ChatConfigID>) -> ChatID {
+    pub fn create_chat(&mut self, starting_context:WholeContext, session_id:Option<SessionID>, origin_device:DeviceID, config:Option<ChatConfiguration>) -> ChatID {
         let id = self.all_chats.len();
         self.all_chats.insert(id, Chat {
             context: starting_context,
@@ -107,7 +108,8 @@ impl Chats {
             latest_message:Utc::now(),
             start_date:Utc::now(),
             waiting_on_response:true,
-            config
+            config:config.clone().map(|config|{ config.id}),
+            latest_used_config:config
         });
         id
     }

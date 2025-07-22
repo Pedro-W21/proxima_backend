@@ -87,6 +87,21 @@ impl ProxDatabase {
                     new_set.insert(*access_mode_id);
                 }
             }
+            match &mut chat.latest_used_config {
+                Some(last_config) => {
+                    let mut new_set = HashSet::with_capacity(16);
+                    for access_mode_id in last_config.access_modes.iter() {
+                        if *access_mode_id >= id {
+                            new_set.insert(*access_mode_id + 1);
+                        }
+                        else {
+                            new_set.insert(*access_mode_id);
+                        }
+                    }
+                    last_config.access_modes = new_set;
+                },
+                None => (),
+            }
             chat.access_modes = new_set;
         }
         for i in 0..self.files.len() {
@@ -147,6 +162,21 @@ impl ProxDatabase {
                 else {
                     new_set.insert(*tag_id);
                 }
+            }
+            match &mut chat.latest_used_config {
+                Some(last_config) => {
+                    let mut new_set = HashSet::with_capacity(16);
+                    for tag_id in last_config.tags.iter() {
+                        if *tag_id >= id {
+                            new_set.insert(*tag_id + 1);
+                        }
+                        else {
+                            new_set.insert(*tag_id);
+                        }
+                    }
+                    last_config.tags = new_set;
+                },
+                None => (),
             }
             chat.tags = new_set;
         }
@@ -257,7 +287,22 @@ impl ProxDatabase {
         }
     }
     pub fn insert_config(&mut self, config:ChatConfiguration) {
-        self.configs.insert_config(config);
+        self.configs.insert_config(config.clone());
+        for i in 0..self.chats.get_chats().len() {
+            let chat = self.chats.get_chats_mut().get_mut(&i).unwrap();
+            match &mut chat.config {
+                Some(id) => if *id >= config.id {
+                    *id += 1;
+                },
+                None => (),
+            }
+            match &mut chat.latest_used_config {
+                Some(last_config) => if last_config.id >= config.id {
+                    last_config.id += 1;
+                },
+                None => (),
+            }
+        }
     }
     pub fn insert_or_update(&mut self, item:DatabaseItem) -> bool { //true if updated, false if inserted
         match item {

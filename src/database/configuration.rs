@@ -17,9 +17,17 @@ pub struct ChatConfiguration {
     tools:Option<Tools>,
     pub tags:HashSet<TagID>,
     pub access_modes:HashSet<AccessModeID>,
+    pub name:String,
 }   
 
 impl ChatConfiguration {
+    pub fn new(name:String, raw_settings:Vec<ChatSetting>) -> Self {
+        Self { id: 0, created_on: Utc::now(), last_updated: Utc::now(), raw_settings:raw_settings.clone(), tools: Tools::try_from_settings(raw_settings), tags: HashSet::new(), access_modes: HashSet::from([0]), name }
+    }
+    pub fn new_with_tags_access_modes(name:String, raw_settings:Vec<ChatSetting>, tags:HashSet<TagID>, access_modes:HashSet<AccessModeID>) -> Self {
+        Self { id: 0, created_on: Utc::now(), last_updated: Utc::now(), raw_settings:raw_settings.clone(), tools: Tools::try_from_settings(raw_settings), tags, access_modes, name }
+    
+    }
     pub fn get_raw_settings(&self) -> &Vec<ChatSetting> {
         &self.raw_settings
     }
