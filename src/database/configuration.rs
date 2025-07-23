@@ -64,6 +64,21 @@ pub enum ChatSetting {
     PrePromptBeforeLatest(ContextPart),
     Tool(ProximaTool)
 }
+
+impl ChatSetting {
+    pub fn get_title(&self) -> String {
+        match self {
+            Self::Tool(tool) => format!("Tool : {}", tool.get_name()),
+            Self::AccessMode(access_mode) => format!("Access mode"),
+            Self::MaxContextLength(max_ctx) => format!("Max context : {}", *max_ctx),
+            Self::ResponseTokenLimit(limit) => format!("Response limit : {}", *limit),
+            Self::PrePrompt(pre_prompt) => format!("Pre-prompt : initial"),
+            Self::PrePromptBeforeLatest(pre_prompt) => format!("Pre-prompt : latest"),
+            Self::Temperature(temp) => format!("Temperature : {}", *temp as f64/100.0),
+            Self::SystemPrompt(system_prompt) => format!("System prompt"),
+        }
+    }
+}
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ChatConfigurations {
     pub all_configs:Vec<ChatConfiguration>

@@ -211,6 +211,12 @@ impl ProximaTool {
             Self::Calculator => todo!("Implement calculator")
         }
     }
+    pub fn get_name(&self) -> String {
+        match self {
+            Self::Calculator => format!("Calculator"),
+            Self::LocalMemory => format!("Local memory")
+        }
+    }
 }
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ProximaToolData {
