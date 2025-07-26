@@ -89,7 +89,7 @@ impl BackendAPI for OpenAIBackend {
                 ContextPosition::AI => {
                     messages.push(ChatCompletionMessage { role: ChatCompletionMessageRole::Assistant, content: Some(final_content), ..Default::default() });
                 },
-                ContextPosition::Total => {
+                ContextPosition::Total | ContextPosition::Tool => {
                     messages.push(ChatCompletionMessage { role: ChatCompletionMessageRole::Tool, content: Some(final_content), ..Default::default() });
                 }
             }
@@ -251,7 +251,7 @@ impl BackendAPI for OpenAIBackend {
                                 ContextPosition::AI => {
                                     messages.push(ChatCompletionMessage { role: ChatCompletionMessageRole::Assistant, content: Some(final_content), ..Default::default() });
                                 },
-                                ContextPosition::Total => {
+                                ContextPosition::Total | ContextPosition::Tool => {
                                     messages.push(ChatCompletionMessage { role: ChatCompletionMessageRole::Tool, content: Some(final_content), ..Default::default() });
                                 }
                             }
@@ -305,7 +305,7 @@ impl BackendAPI for OpenAIBackend {
                 ContextPosition::AI => {
                     messages.push(ChatCompletionMessage { role: ChatCompletionMessageRole::Assistant, content: Some(final_content), ..Default::default() });
                 },
-                ContextPosition::Total => {
+                ContextPosition::Total | ContextPosition::Tool => {
                     messages.push(ChatCompletionMessage { role: ChatCompletionMessageRole::Tool, content: Some(final_content), ..Default::default() });
                 }
             }
