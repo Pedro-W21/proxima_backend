@@ -132,7 +132,7 @@ pub fn generate_call_output(tool:String, action:String, output_data:String) -> C
     ContextData::Text(format!("<output><tool>{tool}</tool><action>{action}</action><data>{output_data}</data></output>"))
 }
 
-#[derive(Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Hash, PartialEq, Eq, Serialize, Deserialize, Debug)]
 pub enum ProximaTool {
     LocalMemory,
     Calculator

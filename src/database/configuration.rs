@@ -53,7 +53,7 @@ impl ChatConfiguration {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum ChatSetting {
     SystemPrompt(ContextPart),
     Temperature(u64),

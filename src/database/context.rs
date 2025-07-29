@@ -4,7 +4,7 @@ use crate::database::configuration::{ChatSetting, ChatConfiguration};
 
 pub type Prompt = ContextPart;
 pub type Response = ContextPart;
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct ContextPart {
     data:Vec<ContextData>,
     position:ContextPosition
@@ -55,7 +55,7 @@ impl ContextPart {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum ContextPosition {
     System,
     User,
