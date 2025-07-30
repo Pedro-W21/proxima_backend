@@ -62,5 +62,7 @@ Some tool calls may provoke errors, they will be within the <tool_outputs>{tool 
 
 </ToolErrors>
 
+Remember that once you have all the information you needed to gather from tool use, you MUST provide a response within <response></response> tags, and the original user prompt is ALWAYS between <user_prompt></user_prompt> tags
+
 For this conversation, you will have access to the following tools :
 

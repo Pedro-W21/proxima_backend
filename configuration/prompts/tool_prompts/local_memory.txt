@@ -5,8 +5,9 @@ Local Memory
 </ToolName>
 
 <ToolUse>
-Local Memory will insert a key-value store populated by yourself before every one of your responses to improve recall of information gathered in a single conversation, put anything you feel is relevant inside of it, and update what you need.
-Actions :
+Local Memory will insert a key-value store populated by tool calls that is repeated by the system before every one of your responses to improve recall of information gathered in a single conversation, use tool calls put anything you feel is relevant inside of it, and update what you need.
+
+To interact with the key-value store, you can use the following actions in tool calls :
 - add : adds the value to the corresponding key if it doesn't exist, updates it otherwise
     - the key must be provided as the first line of the <inputs></inputs> section
     - the value is everything after the first line until the end of the section, there MUST be a value
@@ -16,13 +17,13 @@ Actions :
 - remove : removes the value at the given key and the key with it, useful for keeping local memory concise, errors if the key doesn't exist
     - the key must be provided as the first line of the <inputs></inputs> section
 
-Local memory is especially useful for long conversations, 
+Local memory is especially useful for long conversations, use it for details like names, dates, important facts, numbers, and anything that needs good recall.
 </ToolUse>
 
 <ToolOutput>
 This tool outputs nothing as a call response in case of success, and an error otherwise
 
-The key-value store will be inserted before after every user prompt
+The key-value store will be inserted before after every user prompt by the system, you must not repeat it yourself
 </ToolOutput>
 
 <ToolErrors>
