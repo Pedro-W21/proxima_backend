@@ -44,7 +44,8 @@ impl<B:BackendAPI> RequestHandler<B> {
                         match settings.get_tools() {
                             Some(tools) => {
                                 let mut new_tools = tools.clone();
-                                while !is_valid_tool_calling_response(&response) {
+                                let mut i = 0;
+                                while !is_valid_tool_calling_response(&response) && i < 8 {
                                     let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone());
                                     whole_context.add_part(response.clone());
                                     whole_context.add_part(added_context);
@@ -54,6 +55,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                                     let id = self.backend.send_new_prompt(whole_context.clone(), session_type);
                                     println!("Sent prompt !!!");
                                     response = self.backend.get_response_to_latest_prompt_for(id).await;
+                                    i += 1;
                                 }
                                 whole_context.add_part(response);
                                 println!("got response");
