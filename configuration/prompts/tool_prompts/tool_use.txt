@@ -11,6 +11,8 @@ The user's prompts will be contained within <user_prompt>{the user's prompt here
 
 Tool output for all calls in a given turn will be put between <tool_outputs>{tool outputs here}</tool_outputs> tags
 
+Tool output will be given to you by the system once you end your turn after making complete tool calls
+
 <ToolCalling>
 Tool calling inside of <think></think> tags will be ignored, and a tool call works like this :
 
@@ -42,6 +44,8 @@ All tool outputs and errors for a given turn will be within <tool_outputs>{tool 
 {output data from the tool call, may be empty depending on the tool}
 </data>
 </output>
+
+Tool outputs will be given to you after you make calls and end your turn
 
 </ToolOutput>
 
