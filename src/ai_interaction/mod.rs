@@ -1,9 +1,9 @@
-use std::{sync::mpmc::{channel, Receiver, Sender}, thread::{self, JoinHandle}};
+use std::{sync::mpmc::{self, channel, Receiver, Sender}, thread::{self, JoinHandle}};
 
 use backend_api::BackendAPI;
 use endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponse, EndpointResponseVariant};
 
-use crate::{ai_interaction::tools::{handle_tool_calling_response, is_valid_tool_calling_response}, database::{chats::SessionType, DatabaseRequest, DatabaseSender}};
+use crate::{ai_interaction::tools::{handle_tool_calling_response, is_valid_tool_calling_response}, database::{chats::SessionType, context::{ContextData, ContextPart, ContextPosition}, DatabaseRequest, DatabaseSender}};
 
 pub mod endpoint_api;
 pub mod ai_response;
@@ -37,7 +37,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                 match chat_settings {
                     Some(settings) => {
                         println!("in settings response cycle");
-                        let id = self.backend.send_new_prompt(whole_context.clone(), session_type);
+                        let id = self.backend.send_new_prompt(whole_context.clone(), session_type, Some(settings.clone()));
                         println!("Sent prompt !!!");
                         let mut response = self.backend.get_response_to_latest_prompt_for(id).await;
                         
@@ -52,7 +52,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                                     whole_context.add_part(new_tools.get_tool_data_insert());
                                     new_tools = output_tools;
                                     println!("in settings response cycle");
-                                    let id = self.backend.send_new_prompt(whole_context.clone(), session_type);
+                                    let id = self.backend.send_new_prompt(whole_context.clone(), session_type, Some(settings.clone()));
                                     println!("Sent prompt !!!");
                                     response = self.backend.get_response_to_latest_prompt_for(id).await;
                                     i += 1;
@@ -71,7 +71,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                     },
                     None => {
                         println!("in no-setting response cycle");
-                        let id = self.backend.send_new_prompt(whole_context, session_type);
+                        let id = self.backend.send_new_prompt(whole_context, session_type, None);
                         println!("Sent prompt !!!");
                         let response = self.backend.get_response_to_latest_prompt_for(id).await;
                         println!("got response");
@@ -86,10 +86,97 @@ impl<B:BackendAPI> RequestHandler<B> {
     pub async fn streaming_respond(mut self) {
         match self.request_variant {
             EndpointRequestVariant::Continue => (),
-            EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type, chat_settings } => {
-                let id = self.backend.send_new_prompt(whole_context, session_type);
-                let response = self.backend.get_response_to_latest_prompt_for_blocking(id);
+            EndpointRequestVariant::RespondToFullPrompt { mut whole_context, streaming, session_type, chat_settings } => {
+                let (rep_sender, rep_recv) = mpmc::channel();
+                match chat_settings {
+                    Some(settings) => {
+                        println!("in settings response cycle");
+                        let (id, receiver) = self.backend.send_new_prompt_streaming(whole_context.clone(), session_type, Some(settings.clone()));
+                        println!("Sent prompt !!!");
+                        send_streaming_response(receiver, ContextPosition::AI, self.response_sender.clone(), rep_sender.clone());
+                        let mut response = self.backend.get_response_to_latest_prompt_for(id).await;
+                        response = rep_recv.recv().unwrap();
+                        match settings.get_tools() {
+                            Some(tools) => {
+                                let mut new_tools = tools.clone();
+                                let mut i = 0;
+                                while !is_valid_tool_calling_response(&response) && i < 8 {
+                                    let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone());
+                                    whole_context.add_part(response.clone());
+                                    send_context_part_streaming_blocking(added_context.clone(), self.response_sender.clone());
+                                    whole_context.add_part(added_context);
+                                    send_context_part_streaming_blocking(new_tools.get_tool_data_insert(), self.response_sender.clone());
+                                    whole_context.add_part(new_tools.get_tool_data_insert());
+                                    new_tools = output_tools;
+                                    println!("in settings response cycle");
+                                    let (id, receiver) = self.backend.send_new_prompt_streaming(whole_context.clone(), session_type, Some(settings.clone()));
+
+                                    send_streaming_response(receiver, ContextPosition::AI, self.response_sender.clone(), rep_sender.clone());
+                                    println!("Sent prompt !!!");
+                                    response = self.backend.get_response_to_latest_prompt_for(id).await;
+                                    response = rep_recv.recv().unwrap();
+                                    i += 1;
+                                }
+                                whole_context.add_part(response);
+                                println!("got response");
+                                self.response_sender.send(EndpointResponse { variant: EndpointResponseVariant::MultiTurnBlock(whole_context) }).unwrap();
+                                println!("Sent back response");
+                            },
+                            None => {
+                                println!("got response");
+                                self.response_sender.send(EndpointResponse { variant: EndpointResponseVariant::Block(response) }).unwrap();
+                                println!("Sent back response");
+                            },
+                        }
+                    },
+                    None => {
+                        println!("in no-setting response cycle");
+                        let (id, receiver) = self.backend.send_new_prompt_streaming(whole_context, session_type, None);
+                        println!("Preparing streaming response");
+                        send_streaming_response(receiver, ContextPosition::AI, self.response_sender.clone(), rep_sender.clone());
+                        println!("sending streaming response");
+                        let response = self.backend.get_response_to_latest_prompt_for(id).await;
+                        println!("Sent back response");
+                    }
+                }
             }
+        }
+    }
+    
+}
+
+fn send_streaming_response(receiver:Receiver<ContextData>, position:ContextPosition, sender:Sender<EndpointResponse>, total_sender:Sender<ContextPart>) {
+    thread::spawn(move || {
+        let mut total = ContextPart::new(vec![], position.clone());
+        match receiver.recv() {
+            Ok(data) => {
+                total.add_data(data.clone());
+                sender.send(EndpointResponse { variant: EndpointResponseVariant::StartStream(data, position.clone()) });
+            },
+            Err(error) => ()
+        }
+        loop {
+            match receiver.recv() {
+                Ok(data) => {
+                    total.add_data(data.clone());
+                    sender.send(EndpointResponse { variant: EndpointResponseVariant::ContinueStream(data, position.clone()) });
+                },
+                Err(error) => break
+            }
+        }
+        total_sender.send(total);
+    });
+}
+
+fn send_context_part_streaming_blocking(part:ContextPart, sender:Sender<EndpointResponse>) {
+    let mut first = true;
+    for data in part.get_data() {
+        if first {
+            sender.send(EndpointResponse { variant: EndpointResponseVariant::StartStream(data.clone(), part.get_position().clone()) });
+            first = false;
+        }
+        else {
+            sender.send(EndpointResponse { variant: EndpointResponseVariant::ContinueStream(data.clone(), part.get_position().clone()) });
         }
     }
 }

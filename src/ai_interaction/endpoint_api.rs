@@ -30,6 +30,15 @@ pub enum EndpointRequestVariant {
     Continue,
 }
 
+impl EndpointRequestVariant {
+    pub fn is_stream(&self) -> bool {
+        match self {
+            EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type, chat_settings } => *streaming,
+            EndpointRequestVariant::Continue => false
+        }
+    }
+}
+
 
 pub struct EndpointResponse {
     pub variant:EndpointResponseVariant
@@ -37,8 +46,8 @@ pub struct EndpointResponse {
 #[derive(Clone, Serialize, Deserialize)]
 pub enum EndpointResponseVariant {
     StartStream(ContextData, ContextPosition),
-    ContinueStream(ContextData),
-    EndStream(ContextData),
+    ContinueStream(ContextData, ContextPosition),
+    EndStream(ContextData, ContextPosition),
     Block(ContextPart),
     MultiTurnBlock(WholeContext)
 }

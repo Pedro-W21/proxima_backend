@@ -31,6 +31,24 @@ impl ChatConfiguration {
     pub fn get_raw_settings(&self) -> &Vec<ChatSetting> {
         &self.raw_settings
     }
+    pub fn get_temp(&self) -> f64 {
+        match self.raw_settings.iter().find(|setting| {match setting {ChatSetting::Temperature(temp) => true, _ => false}}) {
+            Some(setting) => match setting {ChatSetting::Temperature(temp) => (*temp as f64/100.0), _ => panic!("Should be temp, impossible that it isn't")},
+            None => 0.7
+        }
+    }
+    pub fn get_max_context(&self) -> usize {
+        match self.raw_settings.iter().find(|setting| {match setting {ChatSetting::MaxContextLength(ctx) => true, _ => false}}) {
+            Some(setting) => match setting {ChatSetting::MaxContextLength(ctx) => *ctx, _ => panic!("Should be temp, impossible that it isn't")},
+            None => 16184
+        }
+    }
+    pub fn get_max_response(&self) -> usize {
+        match self.raw_settings.iter().find(|setting| {match setting {ChatSetting::ResponseTokenLimit(ctx) => true, _ => false}}) {
+            Some(setting) => match setting {ChatSetting::ResponseTokenLimit(ctx) => *ctx, _ => panic!("Should be temp, impossible that it isn't")},
+            None => 2048
+        }
+    }
     pub fn get_tools(&self) -> &Option<Tools> {
         &self.tools
     }

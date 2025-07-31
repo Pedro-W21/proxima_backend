@@ -1,7 +1,7 @@
 use std::{collections::HashMap, future::Future, pin::Pin, sync::{mpmc::{channel, Receiver, Sender}, Arc, RwLock}};
 
 use openai::{chat::{ChatCompletion, ChatCompletionChoice, ChatCompletionGeneric, ChatCompletionMessage, ChatCompletionMessageRole}, ApiResponseOrError, Credentials, OpenAiError};
-use proxima_backend::database::context::{ContextData, ContextPart, ContextPosition, Prompt, Response, WholeContext};
+use proxima_backend::database::{configuration::ChatConfiguration, context::{ContextData, ContextPart, ContextPosition, Prompt, Response, WholeContext}};
 use proxima_backend::database::chats::{SessionID, SessionType};
 
 
@@ -65,7 +65,7 @@ impl BackendAPI for OpenAIBackend {
         let (send, recv) = channel();
         Self { creds: connection_data.0, model:connection_data.1, sessions:HashMap::with_capacity(16), latest_session_id:0, tasks:Arc::new(RwLock::new(Vec::new())), task_sender:send, results_recv:recv, total_tasks:0}
     }
-    fn send_new_prompt_streaming(&mut self, new_prompt:WholeContext, session_type:SessionType) -> (SessionID, Receiver<ContextData>) {
+    fn send_new_prompt_streaming(&mut self, new_prompt:WholeContext, session_type:SessionType, config:Option<ChatConfiguration>) -> (SessionID, Receiver<ContextData>) {
         let new_session_id = self.latest_session_id;
         self.latest_session_id += 1;
         let session_id = SessionID { id: new_session_id, session_type };
@@ -101,7 +101,14 @@ impl BackendAPI for OpenAIBackend {
         let sender_clone = self.task_sender.clone();
         let (sender_to_client, receiver_for_client) = channel();
         let completion = Box::pin( (async move || {
-            let mut receiver = ChatCompletion::builder(model_clone.as_str(), messages_clones).max_tokens(10000_u16).credentials(creds_clone.clone()).create_stream().await.unwrap();
+            let mut receiver = match config {
+                Some(config) => ChatCompletion::builder(model_clone.as_str(), messages_clones)
+                    .max_tokens(config.get_max_context() as u64)
+                    .max_completion_tokens(config.get_max_response() as u64)
+                    .temperature(config.get_temp() as f32)
+                    .credentials(creds_clone).create_stream().await.unwrap(),
+                None => ChatCompletion::builder(model_clone.as_str(), messages_clones).max_tokens(10000_u16).credentials(creds_clone.clone()).create_stream().await.unwrap(),
+            };
             let mut total = Vec::new();
             loop {
                 match receiver.blocking_recv() {
@@ -281,7 +288,7 @@ impl BackendAPI for OpenAIBackend {
             None => Err(BackendError::SessionMissing(session))
         }
     }
-    fn send_new_prompt(&mut self, new_prompt:WholeContext, session_type:SessionType) -> SessionID {
+    fn send_new_prompt(&mut self, new_prompt:WholeContext, session_type:SessionType, config:Option<ChatConfiguration>) -> SessionID {
         let new_session_id = self.latest_session_id;
         self.latest_session_id += 1;
         let session_id = SessionID { id: new_session_id, session_type };
@@ -315,7 +322,22 @@ impl BackendAPI for OpenAIBackend {
         let model_clone = self.model.clone();
         let creds_clone = self.creds.clone();
         let sender_clone = self.task_sender.clone();
-        let completion = Box::pin( (async move || {sender_clone.send((ChatCompletion::builder(model_clone.as_str(), messages_clones).max_tokens(10000_u16).credentials(creds_clone).create().await, session_clones)).unwrap()})());
+        let completion = Box::pin( (async move || {sender_clone.send((
+            match config {
+                Some(config) => {
+                    ChatCompletion::builder(model_clone.as_str(), messages_clones)
+                    .max_tokens(config.get_max_context() as u64)
+                    .max_completion_tokens(config.get_max_response() as u64)
+                    .temperature(config.get_temp() as f32)
+                    .credentials(creds_clone).create().await
+                },
+                None => {
+                    ChatCompletion::builder(model_clone.as_str(), messages_clones)
+                    .credentials(creds_clone).create().await
+                }
+            }
+            , session_clones)
+        ).unwrap()})());
         {
             self.tasks.write().unwrap().push(completion);
             self.total_tasks += 1;
