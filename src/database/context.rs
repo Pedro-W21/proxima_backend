@@ -66,6 +66,9 @@ impl ContextPart {
                 },
             }
         }
+        if !current_string.is_empty() {
+            new_data.push(ContextData::Text(current_string));
+        }
         self.data = new_data;
     }
 }
