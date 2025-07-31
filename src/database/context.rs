@@ -17,6 +17,9 @@ impl ContextPart {
     pub fn get_data(&self) -> &Vec<ContextData> {
         &self.data
     }
+    pub fn get_data_mut(&mut self) -> &mut Vec<ContextData> {
+        &mut self.data
+    }
     pub fn merge_data_with(&mut self, append:ContextPart) {
         for data in append.data {
             self.add_data(data);
@@ -111,6 +114,9 @@ impl WholeContext {
     }
     pub fn new(parts:Vec<ContextPart>) -> Self {
         Self { parts }
+    }
+    pub fn get_parts_mut(&mut self) -> &mut Vec<ContextPart> {
+        &mut self.parts
     }
     pub fn get_whole_system_prompt(&self) -> WholeContext {
         let system = self.parts.iter().filter_map(|part| { match part.get_position() {ContextPosition::System => Some(part.clone()), _ => None} }).collect::<Vec<ContextPart>>();
