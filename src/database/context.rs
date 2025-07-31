@@ -53,6 +53,21 @@ impl ContextPart {
             }
         }).collect()
     }
+    pub fn concatenate_text(&mut self) {
+        let mut new_data = Vec::with_capacity(self.data.len());
+        let mut current_string = String::new();
+        while self.data.len() > 0 {
+            let first_elem = self.data.remove(0);
+            match first_elem {
+                ContextData::Text(text) => current_string += &text,
+                ContextData::Image(image) => {
+                    new_data.push(ContextData::Text(current_string));
+                    current_string = String::new();
+                },
+            }
+        }
+        self.data = new_data;
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]

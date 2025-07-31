@@ -231,9 +231,10 @@ impl<B:BackendAPI + Send + 'static> AIEndpoint<B> {
                     let response = request.response_tunnel.clone();
                     let request = request.variant.clone();
                     let backend_conn = self.backend_conn.clone();
-                    thread::spawn( move || async move {
-                        RequestHandler::new(db_send_clone, request, response, B::new(backend_conn), streaming).streaming_respond();
+                    let thread = thread::spawn( move || async move {
+                        RequestHandler::new(db_send_clone, request, response, B::new(backend_conn), streaming).streaming_respond().await;
                     });
+                    let result = thread.join().unwrap().await;
                 }
                 else {
                     let db_send_clone = self.database_sender.clone();

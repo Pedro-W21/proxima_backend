@@ -111,7 +111,7 @@ impl BackendAPI for OpenAIBackend {
             };
             let mut total = Vec::new();
             loop {
-                match receiver.blocking_recv() {
+                match receiver.recv().await {
                     Some(completion) => {
                         assert!(completion.choices.len() >= 1);
                         total.push(completion.clone());
@@ -126,10 +126,13 @@ impl BackendAPI for OpenAIBackend {
                     None => break,
                 }
             }    
-            sender_clone.send((Ok(total[0].clone().into()), session_clones)).unwrap()
+            sender_clone.send((Ok(total.iter().find(|generation| {generation.choices[0].delta.content.is_some()}).unwrap().clone().into()), session_clones)).unwrap()
         
         })());
-        self.tasks.write().unwrap().push(completion);
+        {
+            self.tasks.write().unwrap().push(completion);
+            self.total_tasks += 1;
+        }
         self.sessions.insert(session_id, OpenAISession { session_data: OpenAISessionData::ChatComp { messages: messages, context_ver: new_prompt, waiting_on:None }, status: OpenAISessionStatus::Beginning });
         (session_id, receiver_for_client)
     }
