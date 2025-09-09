@@ -103,8 +103,7 @@ impl BackendAPI for OpenAIBackend {
         let completion = Box::pin( (async move || {
             let mut receiver = match config {
                 Some(config) => ChatCompletion::builder(model_clone.as_str(), messages_clones)
-                    .max_tokens(config.get_max_context() as u64)
-                    .max_completion_tokens(config.get_max_response() as u64)
+                    .max_tokens(config.get_max_response() as u64)
                     .temperature(config.get_temp() as f32)
                     .credentials(creds_clone).create_stream().await.unwrap(),
                 None => ChatCompletion::builder(model_clone.as_str(), messages_clones).max_tokens(10000_u16).credentials(creds_clone.clone()).create_stream().await.unwrap(),
@@ -329,8 +328,7 @@ impl BackendAPI for OpenAIBackend {
             match config {
                 Some(config) => {
                     ChatCompletion::builder(model_clone.as_str(), messages_clones)
-                    .max_tokens(config.get_max_context() as u64)
-                    .max_completion_tokens(config.get_max_response() as u64)
+                    .max_tokens(config.get_max_response() as u64)
                     .temperature(config.get_temp() as f32)
                     .credentials(creds_clone).create().await
                 },

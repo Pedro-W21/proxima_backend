@@ -35,7 +35,7 @@ async fn main() {
             .route("/db", web::post().to(db_post_handler))
             .route("/ai", web::post().to(ai_post_handler))
     })
-    .bind("127.0.0.1:8082")
+    .bind(format!("127.0.0.1:{}", initialization_data.port))
     .unwrap()
     .run();
     join!(server, handle.join().unwrap());
