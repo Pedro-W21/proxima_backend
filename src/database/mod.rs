@@ -416,6 +416,43 @@ impl ProxDatabase {
             }
         }
     }
+    pub fn get_request(&self, id:DatabaseItemID) -> DatabaseReply {
+        match id {
+            DatabaseItemID::Tag(tagid) => DatabaseReply {variant : DatabaseReplyVariant::ReturnedItem(DatabaseItem::Tag(self.tags.get_tags()[tagid].clone()))},
+            DatabaseItemID::AccessMode(modeid) => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::AccessMode(self.access_modes.get_modes()[modeid].clone()))},
+            DatabaseItemID::Device(deviceid) => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Device(self.devices.get_devices()[deviceid].clone()))},
+            DatabaseItemID::Chat(chatid) => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Chat(self.chats.get_chats().get(&chatid).unwrap().clone()))},
+            DatabaseItemID::File(fileid) => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::File(self.files.get_file_by_id(fileid).clone()))},
+            DatabaseItemID::Folder(folderid) => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Folder(self.folders.get_folder_by_id(folderid).clone()))},
+            DatabaseItemID::ChatConfiguration(configid) => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::ChatConfig(self.configs.get_configs()[configid].clone()))},
+            DatabaseItemID::UserData => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::UserData(self.personal_info.user_data.clone()))},
+        }
+    }
+    pub fn update_request(&mut self, item:DatabaseItem) -> DatabaseReply {
+        
+        match item {
+            DatabaseItem::Tag(tag) => {self.tags.update_tag(tag); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
+            DatabaseItem::AccessMode(access_mode) => {self.access_modes.update_mode(access_mode); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
+            DatabaseItem::Device(device) => {self.devices.update_device(device); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
+            DatabaseItem::Chat(chat) => {self.chats.update_chat(chat); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
+            DatabaseItem::File(file) => {let id = file.get_id(); *self.files.get_file_mut(id) = file; DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
+            DatabaseItem::Folder(folder) => {let id = folder.get_id();*self.folders.get_folder_mut(id) = folder; DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
+            DatabaseItem::ChatConfig(config) => {self.configs.update_config(config); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }}
+            DatabaseItem::UserData(user_data) => {self.personal_info.user_data = user_data; DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }}
+        }  
+    }
+    pub fn add_request(&mut self, item:DatabaseItem) -> (DatabaseReply, DatabaseItemID) {
+        match item {
+            DatabaseItem::Tag(tag) => {let id = self.tags.add_tag_raw(tag); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Tag(id)) }, DatabaseItemID::Tag(id))},
+            DatabaseItem::AccessMode(access_mode) => {let id = self.access_modes.add_mode(access_mode); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::AccessMode(id)) }, DatabaseItemID::AccessMode(id))},
+            DatabaseItem::Device(device) => {let id = self.devices.add_device(device); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Device(id)) }, DatabaseItemID::Device(id))},
+            DatabaseItem::Chat(chat) => {let id = self.chats.add_chat_raw(chat); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Chat(id)) }, DatabaseItemID::Chat(id))},
+            DatabaseItem::File(file) => {let id = self.files.add_file_raw(file); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::File(id)) }, DatabaseItemID::File(id))},
+            DatabaseItem::Folder(folder) => {let id = self.folders.add_folder_raw(folder); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Folder(id)) }, DatabaseItemID::Folder(id))},
+            DatabaseItem::ChatConfig(config) => {let id = self.configs.add_config(config); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::ChatConfiguration(id)) }, DatabaseItemID::ChatConfiguration(id))},
+            DatabaseItem::UserData(user_data) => {self.personal_info.user_data = user_data; (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::UserData) }, DatabaseItemID::UserData)}
+        }
+    }
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub enum DatabaseItem {
@@ -662,16 +699,7 @@ impl DatabaseHandler {
         }
     }
     fn handle_get_request(&self, id:DatabaseItemID, response_sender:Sender<DatabaseReply>) -> Result<(), SendError<DatabaseReply>> {
-        match id {
-            DatabaseItemID::Tag(tagid) => response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Tag(self.database.tags.get_tags()[tagid].clone()))}),
-            DatabaseItemID::AccessMode(modeid) => response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::AccessMode(self.database.access_modes.get_modes()[modeid].clone()))}),
-            DatabaseItemID::Device(deviceid) => response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Device(self.database.devices.get_devices()[deviceid].clone()))}),
-            DatabaseItemID::Chat(chatid) => response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Chat(self.database.chats.get_chats().get(&chatid).unwrap().clone()))}),
-            DatabaseItemID::File(fileid) => response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::File(self.database.files.get_file_by_id(fileid).clone()))}),
-            DatabaseItemID::Folder(folderid) => response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Folder(self.database.folders.get_folder_by_id(folderid).clone()))}),
-            DatabaseItemID::ChatConfiguration(configid) => response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::ChatConfig(self.database.configs.get_configs()[configid].clone()))}),
-            DatabaseItemID::UserData => response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::UserData(self.database.personal_info.user_data.clone()))}),
-        }
+        response_sender.send(self.database.get_request(id))
     }
     fn handle_update_request(&mut self, item:DatabaseItem, response_sender:Sender<DatabaseReply>, auth_key:Option<String>) -> Result<(), SendError<DatabaseReply>> {
         match auth_key {
@@ -685,30 +713,12 @@ impl DatabaseHandler {
             }
         }
         self.changed_since_last_save = true;
-        match item {
-            DatabaseItem::Tag(tag) => {self.database.tags.update_tag(tag); response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted })},
-            DatabaseItem::AccessMode(access_mode) => {self.database.access_modes.update_mode(access_mode); response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted })},
-            DatabaseItem::Device(device) => {self.database.devices.update_device(device); response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted })},
-            DatabaseItem::Chat(chat) => {self.database.chats.update_chat(chat); response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted })},
-            DatabaseItem::File(file) => {let id = file.get_id(); *self.database.files.get_file_mut(id) = file; response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted })},
-            DatabaseItem::Folder(folder) => {let id = folder.get_id();*self.database.folders.get_folder_mut(id) = folder; response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted })},
-            DatabaseItem::ChatConfig(config) => {self.database.configs.update_config(config); response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted })}
-            DatabaseItem::UserData(user_data) => {self.database.personal_info.user_data = user_data; response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted })}
-        }  
+        response_sender.send(self.database.update_request(item))
     }
     fn handle_add_request(&mut self, item:DatabaseItem, response_sender:Sender<DatabaseReply>, auth_key:Option<String>) -> Result<(), SendError<DatabaseReply>> {
         self.changed_since_last_save = true;
         let s_item = item.clone();
-        let (res, id) = match item {
-            DatabaseItem::Tag(tag) => {let id = self.database.tags.add_tag_raw(tag); (response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Tag(id)) }), DatabaseItemID::Tag(id))},
-            DatabaseItem::AccessMode(access_mode) => {let id = self.database.access_modes.add_mode(access_mode); (response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::AccessMode(id)) }), DatabaseItemID::AccessMode(id))},
-            DatabaseItem::Device(device) => {let id = self.database.devices.add_device(device); (response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Device(id)) }), DatabaseItemID::Device(id))},
-            DatabaseItem::Chat(chat) => {let id = self.database.chats.add_chat_raw(chat); (response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Chat(id)) }), DatabaseItemID::Chat(id))},
-            DatabaseItem::File(file) => {let id = self.database.files.add_file_raw(file); (response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::File(id)) }), DatabaseItemID::File(id))},
-            DatabaseItem::Folder(folder) => {let id = self.database.folders.add_folder_raw(folder); (response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Folder(id)) }), DatabaseItemID::Folder(id))},
-            DatabaseItem::ChatConfig(config) => {let id = self.database.configs.add_config(config); (response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::ChatConfiguration(id)) }), DatabaseItemID::ChatConfiguration(id))},
-            DatabaseItem::UserData(user_data) => {self.database.personal_info.user_data = user_data; (response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::UserData) }), DatabaseItemID::UserData)}
-        };
+        let (res, id) = self.database.add_request(item);
         match auth_key {
             Some(key) => for (user, data) in self.auth_sessions.iter_mut() {
                 if user != &key {
@@ -719,7 +729,7 @@ impl DatabaseHandler {
                 data.pending_updates.push_back((id.clone(), s_item.clone()));
             }
         }
-        res
+        response_sender.send(res)
     }
     fn handle_new_auth_key(&mut self, response_sender:Sender<DatabaseReply>) -> Result<(), SendError<DatabaseReply>> {
         let new_auth = self.auth_sessions_rng.next_u64().to_string();
