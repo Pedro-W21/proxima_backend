@@ -56,6 +56,13 @@ impl AccessModes {
         self.all_modes[0].tags.insert(tag);
         self.all_modes[mode].tags.insert(tag)
     }
+    pub fn get_updated_modes_from_association(&self, mode:AccessModeID, tag:TagID) -> (AccessMode, AccessMode) {
+        let mut mode_0 = self.all_modes[0].clone();
+        mode_0.tags.insert(tag);
+        let mut mode_n = self.all_modes[mode].clone();
+        mode_n.tags.insert(tag);
+        (mode_0, mode_n)
+    }
     pub fn add_mode(&mut self, mut mode:AccessMode) -> AccessModeID {
         let num = self.all_modes.len();
         mode.id = num;

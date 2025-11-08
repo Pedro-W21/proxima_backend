@@ -85,6 +85,17 @@ impl Tags {
         self.all_tags.push(Tag {number:self.all_tags.len(), name:new_tag.name, desc:new_tag.desc, parent:new_tag.parent, created_at:Utc::now()});
         tag_id
     }
+    pub fn create_possible_tag(&self, mut new_tag:NewTag) -> Tag {
+        match new_tag.parent {
+            Some(tagid) => match self.get_tag_from_tagid(tagid) {
+                Some(tag) => (),
+                None => new_tag.parent = None,
+            },
+            None => ()
+        }
+        let tag = Tag {number:self.all_tags.len(), name:new_tag.name, desc:new_tag.desc, parent:new_tag.parent, created_at:Utc::now()};
+        tag
+    }
     pub fn add_tag_with_parent_name(&mut self, mut new_tag:NewTag, parent_name:Option<String>) -> TagID {
         match parent_name {
             Some(parent_tag) => match self.get_tagid_of(parent_tag.clone()) {
