@@ -113,6 +113,23 @@ impl Chats {
         });
         id
     }
+    pub fn create_possible_chat(&mut self, starting_context:WholeContext, session_id:Option<SessionID>, origin_device:DeviceID, config:Option<ChatConfiguration>) -> Chat {
+        let id = self.all_chats.len();
+        Chat {
+            context: starting_context,
+            chat_title: None,
+            session_id,
+            origin_device,
+            id,
+            tags:HashSet::new(),
+            access_modes:HashSet::from([0]),
+            latest_message:Utc::now(),
+            start_date:Utc::now(),
+            waiting_on_response:true,
+            config:config.clone().map(|config|{ config.id}),
+            latest_used_config:config
+        }
+    }
     pub fn update_chat(&mut self, chat:Chat) {
         let id = chat.id;
         self.all_chats.insert(id, chat);
