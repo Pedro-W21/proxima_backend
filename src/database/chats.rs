@@ -113,7 +113,7 @@ impl Chats {
         });
         id
     }
-    pub fn create_possible_chat(&mut self, starting_context:WholeContext, session_id:Option<SessionID>, origin_device:DeviceID, config:Option<ChatConfiguration>) -> Chat {
+    pub fn create_possible_chat(&self, starting_context:WholeContext, session_id:Option<SessionID>, origin_device:DeviceID, config:Option<ChatConfiguration>) -> Chat {
         let id = self.all_chats.len();
         Chat {
             context: starting_context,
