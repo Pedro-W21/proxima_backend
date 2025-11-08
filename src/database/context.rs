@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::database::configuration::{ChatSetting, ChatConfiguration};
+use crate::database::configuration::{ChatConfiguration, ChatSetting, RepeatPosition};
 
 pub type Prompt = ContextPart;
 pub type Response = ContextPart;
@@ -129,7 +129,15 @@ impl WholeContext {
     pub fn add_per_turn_settings(&mut self, settings:&ChatConfiguration) {
         for setting in settings.get_raw_settings() {
             match setting {
-                ChatSetting::PrePromptBeforeLatest(prompt) => self.parts.push(prompt.clone()),
+                ChatSetting::RepeatedPrePrompt(prompt, position) => match position {
+                    RepeatPosition::AfterLatest => self.parts.push(prompt.clone()),
+                    RepeatPosition::BeforeLatest => if self.parts.len() >= 1 {
+                        self.parts.insert(self.parts.len() - 1,prompt.clone())
+                    }
+                    else {
+                        self.parts.insert(0,prompt.clone())
+                    }
+                },
                 _ => ()
             }
         }

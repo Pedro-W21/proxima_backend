@@ -79,9 +79,15 @@ pub enum ChatSetting {
     MaxContextLength(usize),
     AccessMode(AccessModeID),
     PrePrompt(ContextPart),
-    PrePromptAfterLatest(ContextPart),
-    PrePromptBeforeLatest(ContextPart),
+    RepeatedPrePrompt(ContextPart, RepeatPosition),
     Tool(ProximaTool)
+}
+
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub enum RepeatPosition {
+    BeforeLatest,
+    AfterLatest,
 }
 
 impl ChatSetting {
@@ -92,8 +98,7 @@ impl ChatSetting {
             Self::MaxContextLength(max_ctx) => format!("Max context : {}", *max_ctx),
             Self::ResponseTokenLimit(limit) => format!("Response limit : {}", *limit),
             Self::PrePrompt(pre_prompt) => format!("Pre-prompt : initial"),
-            Self::PrePromptAfterLatest(pre_prompt) => format!("Pre-prompt after latest"),
-            Self::PrePromptBeforeLatest(pre_prompt) => format!("Pre-prompt before latest"),
+            Self::RepeatedPrePrompt(pre_prompt, _) => format!("repeated pre-prompt"),
             Self::Temperature(temp) => format!("Temperature : {}", *temp as f64/100.0),
             Self::SystemPrompt(system_prompt) => format!("System prompt"),
         }
