@@ -86,7 +86,7 @@ impl Tools {
                     let mut inputs = String::new();
                     match &call_element.children[2] {
                         Node::Element(tool_element) => match tool_element.name.trim() {
-                            "inputs" => match tool_element.children.get(0).map(|node| {node.text().unwrap_or("NOT AN INPUT")}) {
+                            "in_data" => match tool_element.children.get(0).map(|node| {node.text().unwrap_or("NOT AN INPUT")}) {
                                 Some(name) => inputs = String::from(name),
                                 None => ()
                             },

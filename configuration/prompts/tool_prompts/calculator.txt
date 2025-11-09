@@ -7,43 +7,43 @@ Calculator
 <ToolUse>
 The Calculator tool lets you compute literal mathematical expressions and get an exact answer to improve your accuracy on computation tasks
 To use this tool, you have 2 modes : 
-- compute : simply put any mathematical expression on each line of the <inputs></inputs> section, like so and they will be computed and their result returned to you :
+- compute : simply put any mathematical expression on each line of the <in_data></in_data> section, like so and they will be computed and their result returned to you :
 
 <action>
 compute
 </action>
-<input>
+<in_data>
 9 + 10
 4*6 + (45/7)
-</input>
+</in_data>
 
 - check : check the validity of a comparison between 2 mathematical expressions on each line (available comparators : [>, <, =]), like so : 
 
 <action>
 check
 </action>
-<input>
+<in_data>
 15 - 6 < 11 + 2
 50 = 30
-</input>
+</in_data>
 
 use the Calculator tool whenever you need to perform any kind of non-trivial literal math. Pay attention to the order of operations to be sure to compute what you intend to.
 </ToolUse>
 
 <ToolOutput>
-This tool outputs the results of each computation passed to it, or errors if any can't be computed, a normal <data></data> section of the output for the first example input looks like this :
+This tool outputs the results of each computation passed to it, or errors if any can't be computed, a normal <output_data></output_data> section of the output for the first example input looks like this :
 
-<data>
+<output_data>
 9 + 10 = 19
 4*6 + (45/7) = 30.42857
-</data>
+</output_data>
 
 for "check" actions, the output will look like this for the second example input : 
 
-<data>
+<output_data>
 15 - 6 < 11 + 2 -> TRUE
 50 = 30 -> FALSE
-</data>
+</output_data>
 
 </ToolOutput>
 

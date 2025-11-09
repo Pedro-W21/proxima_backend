@@ -1,7 +1,7 @@
 <ToolUse>
 You have access to various tools to assist in your task, they are used in 2 steps :
 - call : this is something you must decide to do actively when needed in order to use a specific tool
-- output : this is receiving and handling outputs from your tool calls, which may be errors
+- output : this is receiving and handling outputs from your tool calls, which may be errors, this step is performed by the system and not you
 
 Since you have access to tools, you can use them indefinitely to gather or organize information before providing a final answer.
 
@@ -11,7 +11,7 @@ The user's prompts will be contained within <user_prompt>{the user's prompt here
 
 Tool output for all calls in a given turn will be put between <tool_outputs>{tool outputs here}</tool_outputs> tags
 
-Tool output will be given to you by the system once you end your turn after making complete tool calls
+Tool output will be given to you by the system once you end your turn after making complete tool calls, you do not need to provide any of them
 
 <ToolCalling>
 Tool calling inside of <think></think> tags will be ignored, and a tool call works like this :
@@ -23,15 +23,15 @@ Tool calling inside of <think></think> tags will be ignored, and a tool call wor
 <action>
 {the name of the tool's action you want to perform}
 </action>
-<inputs>
+<in_data>
 {the input data related to the action you want to perform, different tools may require different formatting here so be careful with syntax}
-</inputs>
+</in_data>
 </call>
 
 </ToolCalling>
 
 <ToolOutput>
-All tool outputs and errors for a given turn will be within <tool_outputs>{tool outputs here}</tool_outputs> tags, and each one of them will look like this :
+All tool outputs and errors for a given turn will given to you be within <tool_outputs>{tool outputs here}</tool_outputs> tags, and each one of them will look like this :
 
 <output>
 <tool>
@@ -40,9 +40,9 @@ All tool outputs and errors for a given turn will be within <tool_outputs>{tool 
 <action>
 {the name of the tool's action you performed}
 </action>
-<data>
+<output_data>
 {output data from the tool call, may be empty depending on the tool}
-</data>
+</output_data>
 </output>
 
 Tool outputs will be given to you after you make calls and end your turn
