@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{cmp::Ordering, collections::HashMap};
 
 use html_parser::{Dom, Element, Node};
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,8 @@ pub struct Tools {
 pub enum ToolParsingError {
     BadElementName {expected:String, found:String},
     BadNumberOfArguments {expected:usize, found:usize, remarks:String},
-    NotAnElement
+    NotAnElement,
+    IncorrectExpression {expression:String, issue:String}
 }
 
 impl Tools {
@@ -196,7 +197,61 @@ impl ProximaTool {
                     _ => panic!("Impossible, action must be checked before this point")
                 }
             },
-            Self::Calculator => todo!("Implement calculator")
+            Self::Calculator => {
+                let input_lines:Vec<String> = input.trim().lines().map(|line| {line.trim().to_string()}).collect();
+                match action.trim() {
+                    "compute" => if input_lines.len() >= 1 {
+                        let mut output = String::new();
+                        for line in input_lines {
+                            match string_calculator::eval_f64(line.clone(), 1.0) {
+                                Ok(value) => output += format!("{} = {:.4}\n", line, value).trim(),
+                                Err(error) => return Err(ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: line, issue: error.to_string() }))
+                            }
+                        }
+                        Ok((generate_call_output("Calculator".to_string(), "compute".to_string(), output), None))
+                    }
+                    else {
+                        Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 1, found: 0, remarks: format!("You must provide at least 1 expression to compute") }))
+                    },
+                    "check" => if input_lines.len() >= 1 {
+                        const COMPARATORS:[(char, Ordering) ; 3] = [('>', Ordering::Greater), ('<', Ordering::Less), ('=', Ordering::Equal)];
+                        let mut output = String::new();
+                        'lines:for line in input_lines {
+                            for (comparator,ordering) in &COMPARATORS {
+                                if line.contains(*comparator) {
+                                    let exprs:Vec<String> = line.split(*comparator).map(|expr| {expr.trim().to_string()}).collect();
+                                    if exprs.len() == 2 {
+                                        let val1 = match string_calculator::eval_f64(exprs[0].clone(), 1.0) {
+                                            Ok(value) => value,
+                                            Err(error) => return Err(ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: exprs[0].to_string(), issue: error.to_string() }))
+                                        };
+                                        let val2 = match string_calculator::eval_f64(exprs[1].clone(), 1.0) {
+                                            Ok(value) => value,
+                                            Err(error) => return Err(ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: exprs[1].to_string(), issue: error.to_string() }))
+                                        };
+                                        if val1.total_cmp(&val2) == *ordering {
+                                            output += format!("{} -> TRUE\n", line).trim()
+                                        }
+                                        else {
+                                            output += format!("{} -> FALSE\n", line).trim()
+                                        }
+                                    }
+                                    else {
+                                        return Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 2, found: exprs.len(), remarks: format!("You must provide only 2 expressions to compare") }))
+                                    }
+                                    continue 'lines;
+                                }
+                            }
+                            
+                        }
+                        Ok((generate_call_output("Calculator".to_string(), "check".to_string(), output), None))
+                    }
+                    else {
+                        Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 1, found: 0, remarks: format!("You must provide at least 1 line of expressions to check") }))
+                    },
+                    _ => panic!("Impossible, action must be checked before this point")
+                }
+            },
         }
     }
     pub fn get_empty_data(&self) -> Option<ProximaToolData> {
@@ -208,7 +263,7 @@ impl ProximaTool {
     pub fn get_description_string(&self) -> String {
         match self {
             Self::LocalMemory => String::from(include_str!("../../configuration/prompts/tool_prompts/local_memory.txt")),
-            Self::Calculator => todo!("Implement calculator")
+            Self::Calculator => String::from(include_str!("../../configuration/prompts/tool_prompts/calculator.txt"))
         }
     }
     pub fn get_name(&self) -> String {
