@@ -334,16 +334,20 @@ pub fn is_valid_tool_calling_response(response:&ContextPart) -> bool {
     found_start && found_end && !found_call
 }
 
-fn handle_tool_calling_context_data(text:&String, tools:Tools) -> (ContextPart, Tools) {
+fn handle_tool_calling_context_data(text:&String, mut tools:Tools) -> (ContextPart, Tools) {
     match Dom::parse(text) {
         Ok(parsed) => {
+            let mut data = Vec::with_capacity(2);
             for child in parsed.children {
                 match child {
                     Node::Element(elt) => {
                         match elt.name.trim() {
                             "call" => {
                                 match tools.call(elt) {
-                                    Ok((context_data, out_tools)) => return (ContextPart::new(vec![context_data], ContextPosition::Tool), out_tools),
+                                    Ok((context_data, out_tools)) => {
+                                        data.push(context_data);
+                                        tools = out_tools;
+                                    },
                                     Err(error) => return (error, tools),
                                 }
                             },
@@ -353,7 +357,7 @@ fn handle_tool_calling_context_data(text:&String, tools:Tools) -> (ContextPart, 
                     _ => ()
                 }
             }
-            (ContextPart::new(vec![], ContextPosition::Tool), tools)
+            (ContextPart::new(data, ContextPosition::Tool), tools)
         },
         Err(_) => (ContextPart::new(vec![], ContextPosition::Tool), tools)
     }
