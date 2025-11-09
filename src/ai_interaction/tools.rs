@@ -130,7 +130,7 @@ impl ProximaToolCallError {
 }
 
 pub fn generate_call_output(tool:String, action:String, output_data:String) -> ContextData {
-    ContextData::Text(format!("<output><tool>{tool}</tool><action>{action}</action><data>{output_data}</data></output>"))
+    ContextData::Text(format!("<output><tool>{tool}</tool><action>{action}</action><output_data>{output_data}</output_data></output>"))
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Serialize, Deserialize, Debug)]
@@ -152,7 +152,10 @@ impl ProximaTool {
                 "add" | "update" | "remove" => true,
                 _ => false
             },
-            Self::Calculator => todo!("Implement calculator")
+            Self::Calculator => match action.trim() {
+                "compute" | "check" => true,
+                _ => false
+            },
         }
     }
     pub fn try_from_string(string:String) -> Option<Self> {
