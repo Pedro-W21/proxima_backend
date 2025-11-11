@@ -341,13 +341,18 @@ impl ProximaTool {
 #[cfg(not(target_family = "wasm"))]
 async fn web_search_tool(number_of_results:usize, query:String) -> Result<String, ProximaToolCallError> {
     use duckduckgo::browser::Browser;
-    use duckduckgo::user_agents::get;
     use reqwest::Client;
     let mut output = String::new();
     let browser = Browser::new(Client::new());
-    match browser.lite_search(&query, "wt-wt", Some(number_of_results.min(20)), get("firefox").unwrap()).await {
-        Ok(results) => for result in results {
-            output += &format!("Title: {}\nURL: {}\nSnippet: {}\n-----------------\n", result.title, result.url, result.snippet);
+    match browser.lite_search(&query, "wt-wt", Some(number_of_results.min(20)), "ProximaBotWebTool/0.1 (https://github.com/Pedro-W21/proxima_backend) reqwest/0.11.27").await {
+        Ok(results) => 
+        if results.len() > 0 {
+            for result in results {
+                output += &format!("Title: {}\nURL: {}\nSnippet: {}\n-----------------\n", result.title, result.url, result.snippet);
+            }
+        }
+        else {
+            return Err(ProximaToolCallError::WebError(format!("There are no answers to your query, this is highly likely to be a result of exceeding search rate limits. Do not use the search tool again in this chat and say it to the user in order to set correct expectations for information quality.")))
         },
         Err(error) => return Err(ProximaToolCallError::WebError(format!("{}", error)))
     }
