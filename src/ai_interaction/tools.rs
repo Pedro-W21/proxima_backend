@@ -58,6 +58,7 @@ impl Tools {
         ContextPart::new(vec![ContextData::Text(base)], ContextPosition::System)
     }
     pub async fn call(&self, call_element:Element) -> Result<(ContextData, Self), ContextPart> {
+        dbg!(call_element.clone());
         if call_element.children.len() == 3 {
             let mut tool_name = String::new();
             match &call_element.children[0] {
@@ -68,7 +69,7 @@ impl Tools {
                     },
                     other => return Err(ProximaToolCallError::Parsing(ToolParsingError::BadElementName { expected: String::from("tool"), found: String::from(other) }).generate_error_output("Couldn't be parsed".to_string(), "Couldn't be parsed".to_string()))
                 },
-                _ => return Err(ProximaToolCallError::Parsing(ToolParsingError::NotAnElement).generate_error_output("Couldn't be parsed".to_string(), "Couldn't be parsed".to_string()))
+                _ => return Err(ProximaToolCallError::Parsing(ToolParsingError::NotAnElement).generate_error_output("Tool couldn't be parsed".to_string(), "Couldn't be parsed".to_string()))
             }
             if let Some(tool) = ProximaTool::try_from_string(tool_name.clone()) {
                 let mut action = String::new();
@@ -80,7 +81,7 @@ impl Tools {
                         },
                         other => return Err(ProximaToolCallError::Parsing(ToolParsingError::BadElementName { expected: String::from("action"), found: String::from(other) }).generate_error_output(tool_name, "Couldn't be parsed".to_string()))
                     },
-                    _ => return Err(ProximaToolCallError::Parsing(ToolParsingError::NotAnElement).generate_error_output(tool_name, "Couldn't be parsed".to_string()))
+                    _ => return Err(ProximaToolCallError::Parsing(ToolParsingError::NotAnElement).generate_error_output(tool_name, "Action couldn't be parsed".to_string()))
                 }
                 if tool.is_valid_action(&action) {
                     let mut inputs = String::new();
@@ -106,7 +107,7 @@ impl Tools {
                 }
             }
 
-            return Err(ProximaToolCallError::Parsing(ToolParsingError::NotAnElement).generate_error_output("Couldn't be parsed".to_string(), "Couldn't be parsed".to_string()));
+            return Err(ProximaToolCallError::Parsing(ToolParsingError::NotAnElement).generate_error_output("Tool name couldn't be parsed".to_string(), "Couldn't be parsed".to_string()));
         }
         else {
             Err(ProximaToolCallError::Parsing(ToolParsingError::NotAnElement).generate_error_output("Couldn't be parsed".to_string(), "Couldn't be parsed".to_string()))
@@ -168,6 +169,7 @@ impl ProximaTool {
         match string.trim() {
             "Local Memory" => Some(Self::LocalMemory),
             "Calculator" => Some(Self::Calculator),
+            "Web" => Some(Self::Web),
             _ => None
         }
     }
