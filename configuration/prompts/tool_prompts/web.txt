@@ -1,0 +1,69 @@
+<ToolDescription>
+
+<ToolName>
+Web
+</ToolName>
+
+<ToolUse>
+The Web tool lets you 
+There are 2 different actions you can perform with this tool : 
+- search : put the number of results you want and a query within quotes, one at a time on each line, like so : 
+
+<action>
+search
+</action>
+<in_data>
+2 "Who is the current prime minister of Canada ?"
+10 "What's the most common bird species in Turkey ?"
+</in_data>
+
+You can use the number of results parameter to manage the amount of information you are fetching. facts about very popular subjects should need few results to get a conclusive, trustable answer, whereas niche questions may need upwards of 5 to 20 results to be able to start to answer them.
+
+
+- open : get the HTML code of one or more web pages as URLs, like so : 
+
+<action>
+open
+</action>
+<in_data>
+https://example.com
+https://en.wikipedia.org/wiki/Main_Page
+</in_data>
+
+use the Web tool whenever you need to get precise information on a recent subject 
+</ToolUse>
+
+<ToolOutput>
+This tool outputs the results of each computation passed to it, or errors if any can't be computed, a normal <output_data></output_data> section of the output for the first example input looks like this :
+
+<output_data>
+Query: 2 "What's the latest Nvidia GPU generation ?"
+#####
+Title: Nvidia 60 Series release date rumors & latest updates - PC Guide
+URL: https://www.pcguide.com/news/when-will-nvidia-60-series-release-latest-updates/
+Snippet: When will Nvidia's 60 Series launch? Here are all the latest rumors and details on the future Rubin-based GPU lineup.
+-----------------
+Title: GeForce RTX 50 Series Graphics Cards | NVIDIA
+URL: https://www.nvidia.com/en-us/geforce/graphics-cards/50-series/
+Snippet: Powered by NVIDIA Blackwell, GeForce RTX™ 50 Series GPUs bring game-changing capabilities to gamers and creators. Equipped with a massive level of AI horsepower, the RTX 50 Series enables new experiences and next-level graphics fidelity. Multiply performance with NVIDIA DLSS 4, generate 
+-----------------
+Query: 10 "What's the most common bird species in Turkey ?"
+#####
+[...]
+</output_data>
+
+for "open" actions, the output will look like this for the second example input : 
+
+<output_data>
+https://example.com : ```<!doctype html><html lang="en"><head><title>Example Domain</title><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{background:#eee;width:60vw;margin:15vh auto;font-family:system-ui,sans-serif}h1{font-size:1.5em}div{opacity:0.8}a:link,a:visited{color:#348}</style><body><div><h1>Example Domain</h1><p>This domain is for use in documentation examples without needing permission. Avoid use in operations.<p><a href="https://iana.org/domains/example">Learn more</a></div></body></html>```
+https://en.wikipedia.org/wiki/Main_Page : ```[...]```
+</output_data>
+
+</ToolOutput>
+
+<ToolErrors>
+The following errors will appear when applicable :
+- INCORRECT : an expression was formatted incorrectly
+</ToolErrors>
+
+</ToolDescription>

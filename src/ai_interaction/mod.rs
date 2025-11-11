@@ -46,7 +46,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                                 let mut new_tools = tools.clone();
                                 let mut i = 0;
                                 while !is_valid_tool_calling_response(&response) && i < 8 {
-                                    let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone());
+                                    let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone()).await;
                                     whole_context.add_part(response.clone());
                                     whole_context.add_part(added_context);
                                     whole_context.add_part(new_tools.get_tool_data_insert());
@@ -101,7 +101,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                                 let mut new_tools = tools.clone();
                                 let mut i = 0;
                                 while !is_valid_tool_calling_response(&response) && i < 8 {
-                                    let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone());
+                                    let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone()).await;
                                     whole_context.add_part(response.clone());
                                     send_context_part_streaming_blocking(added_context.clone(), self.response_sender.clone());
                                     whole_context.add_part(added_context);

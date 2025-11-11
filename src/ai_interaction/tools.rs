@@ -57,7 +57,7 @@ impl Tools {
         base += &String::from("\n</ToolUse>");
         ContextPart::new(vec![ContextData::Text(base)], ContextPosition::System)
     }
-    pub fn call(&self, call_element:Element) -> Result<(ContextData, Self), ContextPart> {
+    pub async fn call(&self, call_element:Element) -> Result<(ContextData, Self), ContextPart> {
         if call_element.children.len() == 3 {
             let mut tool_name = String::new();
             match &call_element.children[0] {
@@ -94,7 +94,7 @@ impl Tools {
                         },
                         _ => return Err(ProximaToolCallError::Parsing(ToolParsingError::NotAnElement).generate_error_output(tool_name, action))
                     }
-                    return tool.respond_to(action.clone(), inputs, self.tool_data.get(&tool)).map(|(context, new_data)| {(context, 
+                    return tool.respond_to(action.clone(), inputs, self.tool_data.get(&tool)).await.map(|(context, new_data)| {(context, 
                     match new_data {
                         Some(new_data) => {
                             let mut new_self = self.clone();
@@ -117,7 +117,7 @@ impl Tools {
 #[derive(Clone, Debug)]
 pub enum ProximaToolCallError {
     Parsing(ToolParsingError),
-
+    WebError(String)
 }
 
 impl ProximaToolCallError {
@@ -136,7 +136,8 @@ pub fn generate_call_output(tool:String, action:String, output_data:String) -> C
 #[derive(Clone, Hash, PartialEq, Eq, Serialize, Deserialize, Debug)]
 pub enum ProximaTool {
     LocalMemory,
-    Calculator
+    Calculator,
+    Web
 }
 
 impl ProximaTool {
@@ -144,6 +145,7 @@ impl ProximaTool {
         match self {
             Self::LocalMemory => true,
             Self::Calculator => false,
+            Self::Web => false
         }
     }
     pub fn is_valid_action(&self, action:&String) -> bool {
@@ -156,6 +158,10 @@ impl ProximaTool {
                 "compute" | "check" => true,
                 _ => false
             },
+            Self::Web => match action.trim() {
+                "search" | "open" => true,
+                _ => false
+            },
         }
     }
     pub fn try_from_string(string:String) -> Option<Self> {
@@ -165,7 +171,7 @@ impl ProximaTool {
             _ => None
         }
     }
-    pub fn respond_to(&self, action:String, input:String, data:Option<&ProximaToolData>) -> Result<(ContextData, Option<ProximaToolData>), ProximaToolCallError> {
+    pub async fn respond_to(&self, action:String, input:String, data:Option<&ProximaToolData>) -> Result<(ContextData, Option<ProximaToolData>), ProximaToolCallError> {
         match self {
             Self::LocalMemory => {
                 let mut new_data = data.unwrap().get_local_mem_data();
@@ -255,27 +261,114 @@ impl ProximaTool {
                     _ => panic!("Impossible, action must be checked before this point")
                 }
             },
+            Self::Web => {
+
+                let input_lines:Vec<String> = input.trim().lines().map(|line| {line.trim().to_string()}).collect();
+                match action.trim() {
+                    "search" => if input_lines.len() >= 1 {
+                        let mut output = String::new();
+                        for line in input_lines {
+                            let mut words:Vec<&str> = line.split_whitespace().collect();
+                            if words.len() >= 2 {
+
+                                match words[0].parse::<usize>() {
+                                    Ok(value) => if !cfg!(target_family = "wasm") {
+                                        words.remove(0);
+                                        match web_search_tool(value, words.into_iter().intersperse(&" ").collect::<Vec<&str>>().concat().trim().trim_matches('"').to_string()).await {
+                                            Ok(addition) => {
+                                                output += &format!("Query: {}\n#####\n", line.clone());
+                                                output += &addition;    
+                                            },
+                                            Err(error) => return Err(error)
+                                        }
+                                    },
+                                    Err(_) => return Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 1, found: 0, remarks: format!("The first argument on each line must be ") }))
+                                }
+                            }
+                            else {
+                                return Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 2, found: 1, remarks: format!("a query has 2 arguments, the number of results and the text of the query itself") }))
+                            }
+                        }
+                        Ok((generate_call_output("Web".to_string(), "search".to_string(), output), None))
+                    }
+                    else {
+                        Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 1, found: 0, remarks: format!("You must provide at least 1 query to search") }))
+                    },
+                    "open" => if input_lines.len() >= 1 {
+                        let mut output = String::new();
+                        if !cfg!(target_family = "wasm") {
+
+                            match web_open_tool(input_lines).await {
+                                Ok(out) => output = out,
+                                Err(error) => return Err(error)
+                            }
+                        }   
+                        Ok((generate_call_output("Web".to_string(), "open".to_string(), output), None))
+                    }
+                    else {
+                        Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 1, found: 0, remarks: format!("You must provide at least 1 website to open") }))
+                    },
+                    _ => panic!("Impossible, action must be checked before this point")
+                }
+            }
         }
     }
     pub fn get_empty_data(&self) -> Option<ProximaToolData> {
         match self {
             Self::LocalMemory => Some(ProximaToolData::LocalMemory(HashMap::new())),
-            Self::Calculator => None
+            Self::Calculator => None,
+            Self::Web => None,
         }
     }
     pub fn get_description_string(&self) -> String {
         match self {
             Self::LocalMemory => String::from(include_str!("../../configuration/prompts/tool_prompts/local_memory.txt")),
-            Self::Calculator => String::from(include_str!("../../configuration/prompts/tool_prompts/calculator.txt"))
+            Self::Calculator => String::from(include_str!("../../configuration/prompts/tool_prompts/calculator.txt")),
+            Self::Web => String::from(include_str!("../../configuration/prompts/tool_prompts/web.txt")),
         }
     }
     pub fn get_name(&self) -> String {
         match self {
             Self::Calculator => format!("Calculator"),
-            Self::LocalMemory => format!("Local memory")
+            Self::LocalMemory => format!("Local memory"),
+            Self::Web => format!("Web")
         }
     }
 }
+
+#[cfg(not(target_family = "wasm"))]
+async fn web_search_tool(number_of_results:usize, query:String) -> Result<String, ProximaToolCallError> {
+    use duckduckgo::browser::Browser;
+    use duckduckgo::user_agents::get;
+    use reqwest::Client;
+    let mut output = String::new();
+    let browser = Browser::new(Client::new());
+    match browser.lite_search(&query, "wt-wt", Some(number_of_results), get("firefox").unwrap()).await {
+        Ok(results) => for result in results {
+            output += &format!("Title: {}\nURL: {}\nSnippet: {}\n-----------------\n", result.title, result.url, result.snippet);
+        },
+        Err(error) => return Err(ProximaToolCallError::WebError(format!("{}", error)))
+    }
+    Ok(output)
+}
+
+#[cfg(not(target_family = "wasm"))]
+async fn web_open_tool(lines:Vec<String>) -> Result<String, ProximaToolCallError> {
+    use reqwest::Client;
+    let mut output = String::new();
+    let client = Client::new();
+    for url in lines {
+        match client.get(url.clone()).send().await {
+            Ok(response) => match response.error_for_status() {
+                Ok(real_res) => output += &format!("{} : ```{}```\n", url, real_res.text().await.unwrap()),
+                Err(error) => return Err(ProximaToolCallError::WebError(format!("{}", error)))
+            },
+            Err(error) => return Err(ProximaToolCallError::WebError(format!("{}", error)))
+        }
+    }
+    Ok(output)
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ProximaToolData {
     LocalMemory(HashMap<String, String>)
@@ -295,13 +388,13 @@ impl ProximaToolData {
 }
 
 
-pub fn handle_tool_calling_response(response:ContextPart, tools:Tools) -> (ContextPart, Tools) {
+pub async fn handle_tool_calling_response(response:ContextPart, tools:Tools) -> (ContextPart, Tools) {
     let mut out_context = ContextPart::new(vec![ContextData::Text(format!("<outputs>\n"))], ContextPosition::Tool);
     let mut out_tools = tools.clone();
     for data in response.get_data() {
         match data {
             ContextData::Text(text) => {
-                let (part, part_tools) = handle_tool_calling_context_data(text, out_tools.clone());
+                let (part, part_tools) = handle_tool_calling_context_data(text, out_tools.clone()).await;
                 out_tools = part_tools;
                 out_context.merge_data_with(part);
             },
@@ -334,7 +427,7 @@ pub fn is_valid_tool_calling_response(response:&ContextPart) -> bool {
     found_start && found_end && !found_call
 }
 
-fn handle_tool_calling_context_data(text:&String, mut tools:Tools) -> (ContextPart, Tools) {
+async fn handle_tool_calling_context_data(text:&String, mut tools:Tools) -> (ContextPart, Tools) {
     match Dom::parse(text) {
         Ok(parsed) => {
             let mut data = Vec::with_capacity(2);
@@ -343,7 +436,7 @@ fn handle_tool_calling_context_data(text:&String, mut tools:Tools) -> (ContextPa
                     Node::Element(elt) => {
                         match elt.name.trim() {
                             "call" => {
-                                match tools.call(elt) {
+                                match tools.call(elt).await {
                                     Ok((context_data, out_tools)) => {
                                         data.push(context_data);
                                         tools = out_tools;
