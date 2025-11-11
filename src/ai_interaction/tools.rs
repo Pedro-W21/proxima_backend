@@ -352,6 +352,12 @@ async fn web_search_tool(number_of_results:usize, query:String) -> Result<String
     Ok(output)
 }
 
+
+#[cfg(all(target_family = "wasm"))]
+async fn web_search_tool(number_of_results:usize, query:String) -> Result<String, ProximaToolCallError> {
+    Err(ProximaToolCallError::WebError(format!("Running a web search tool call on a WASM platform, not supported")))
+}
+
 #[cfg(not(target_family = "wasm"))]
 async fn web_open_tool(lines:Vec<String>) -> Result<String, ProximaToolCallError> {
     use reqwest::Client;
@@ -367,6 +373,11 @@ async fn web_open_tool(lines:Vec<String>) -> Result<String, ProximaToolCallError
         }
     }
     Ok(output)
+}
+
+#[cfg(all(target_family = "wasm"))]
+async fn web_open_tool(lines:Vec<String>) -> Result<String, ProximaToolCallError> {
+    Err(ProximaToolCallError::WebError(format!("Running a web open tool call on a WASM platform, not supported")))
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
