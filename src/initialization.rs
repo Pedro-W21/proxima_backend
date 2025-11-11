@@ -109,7 +109,7 @@ pub fn initialize() -> InitializationData {
                 break;
             }
             else {
-                println!("URL cannot be empty, and cannot be longer than 300 characters long")
+                println!("port cannot be empty, and must be a number between 1024 and 65534")
             }
         }
     }
