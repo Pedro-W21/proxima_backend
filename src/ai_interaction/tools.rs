@@ -345,7 +345,7 @@ async fn web_search_tool(number_of_results:usize, query:String) -> Result<String
     use reqwest::Client;
     let mut output = String::new();
     let browser = Browser::new(Client::new());
-    match browser.lite_search(&query, "wt-wt", Some(number_of_results), get("firefox").unwrap()).await {
+    match browser.lite_search(&query, "wt-wt", Some(number_of_results.min(20)), get("firefox").unwrap()).await {
         Ok(results) => for result in results {
             output += &format!("Title: {}\nURL: {}\nSnippet: {}\n-----------------\n", result.title, result.url, result.snippet);
         },
@@ -438,6 +438,28 @@ pub fn is_valid_tool_calling_response(response:&ContextPart) -> bool {
         }
     }
     found_start && found_end && !found_call
+}
+
+pub fn looks_like_nonstandard_final_response(response:&ContextPart) -> bool {
+    let mut found_start = false;
+    let mut found_end = false;
+    let mut found_call = false;
+    for data in response.get_data() {
+        match data {
+            ContextData::Text(text) => {
+                found_call = found_call || text.contains("<call>");
+                if found_start {
+                    found_end = found_end || text.contains("</response>");
+                }
+                else {
+                    found_start = found_start || text.contains("<response>");
+                    found_end = found_end || text.contains("</response>");
+                }
+            },
+            _ => ()
+        }
+    }
+    !(found_start && found_end) && !found_call
 }
 
 async fn handle_tool_calling_context_data(text:&String, mut tools:Tools) -> (ContextPart, Tools) {

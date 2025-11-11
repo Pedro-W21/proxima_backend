@@ -3,7 +3,7 @@ use std::{sync::mpmc::{self, channel, Receiver, Sender}, thread::{self, JoinHand
 use backend_api::BackendAPI;
 use endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponse, EndpointResponseVariant};
 
-use crate::{ai_interaction::tools::{handle_tool_calling_response, is_valid_tool_calling_response}, database::{chats::SessionType, context::{ContextData, ContextPart, ContextPosition}, DatabaseRequest, DatabaseSender}};
+use crate::{ai_interaction::tools::{handle_tool_calling_response, is_valid_tool_calling_response, looks_like_nonstandard_final_response}, database::{DatabaseRequest, DatabaseSender, chats::SessionType, context::{ContextData, ContextPart, ContextPosition}}};
 
 pub mod endpoint_api;
 pub mod ai_response;
@@ -45,7 +45,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                             Some(tools) => {
                                 let mut new_tools = tools.clone();
                                 let mut i = 0;
-                                while !is_valid_tool_calling_response(&response) && i < 8 {
+                                while !is_valid_tool_calling_response(&response) && !looks_like_nonstandard_final_response(&response) && i < 8 {
                                     let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone()).await;
                                     whole_context.add_part(response.clone());
                                     whole_context.add_part(added_context);
@@ -56,6 +56,10 @@ impl<B:BackendAPI> RequestHandler<B> {
                                     println!("Sent prompt !!!");
                                     response = self.backend.get_response_to_latest_prompt_for(id).await;
                                     i += 1;
+                                }
+                                if looks_like_nonstandard_final_response(&response) {
+                                    response.get_data_mut().insert(0, ContextData::Text("<response>\n".to_string()));
+                                    response.get_data_mut().push(ContextData::Text("</response>\n".to_string()));
                                 }
                                 whole_context.add_part(response);
                                 println!("got response");
@@ -100,7 +104,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                             Some(tools) => {
                                 let mut new_tools = tools.clone();
                                 let mut i = 0;
-                                while !is_valid_tool_calling_response(&response) && i < 8 {
+                                while !is_valid_tool_calling_response(&response) && !looks_like_nonstandard_final_response(&response) && i < 8 {
                                     let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone()).await;
                                     whole_context.add_part(response.clone());
                                     send_context_part_streaming_blocking(added_context.clone(), self.response_sender.clone());
@@ -116,6 +120,11 @@ impl<B:BackendAPI> RequestHandler<B> {
                                     response = self.backend.get_response_to_latest_prompt_for(id).await;
                                     response = rep_recv.recv().unwrap();
                                     i += 1;
+                                }
+
+                                if looks_like_nonstandard_final_response(&response) {
+                                    response.get_data_mut().insert(0, ContextData::Text("<response>\n".to_string()));
+                                    response.get_data_mut().push(ContextData::Text("</response>\n".to_string()));
                                 }
                                 whole_context.add_part(response);
                                 println!("got response");
