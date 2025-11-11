@@ -366,7 +366,7 @@ async fn web_open_tool(lines:Vec<String>) -> Result<String, ProximaToolCallError
     let mut output = String::new();
     let client = Client::new();
     for url in lines {
-        match client.get(url.clone()).send().await {
+        match client.get(url.clone()).header("User-Agent", "ProximaBotWebTool/0.1 (https://github.com/Pedro-W21/proxima_backend) reqwest/0.11.27").send().await {
             Ok(response) => match response.error_for_status() {
                 Ok(real_res) => output += &format!("{} : ```{}```\n", url, real_res.text().await.unwrap()),
                 Err(error) => return Err(ProximaToolCallError::WebError(format!("{}", error)))
