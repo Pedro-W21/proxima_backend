@@ -94,7 +94,7 @@ impl InFlightExecution {
         self.finish();
     }
     pub fn finish(&mut self) {
-        Command::new("docker").args(vec!["kill", &format!("proxima_python_{}", self.thread_number)]).output().unwrap();
+        Command::new("docker").args(vec!["kill", &format!("proxima_python_{}", self.thread_number)]).output();
         self.finish_sender.send(self.executor_stream.1.port()).unwrap();
     }
 }

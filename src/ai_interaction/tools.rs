@@ -105,6 +105,7 @@ impl Tools {
                         None => self.clone()
                     })}).map_err(|error| {error.generate_error_output(tool_name, action)})
                 }
+                return Err(ProximaToolCallError::Parsing(ToolParsingError::NotAnElement).generate_error_output(tool_name.clone(), "Invalid action".to_string()));
             }
 
             return Err(ProximaToolCallError::Parsing(ToolParsingError::NotAnElement).generate_error_output("Tool name couldn't be parsed".to_string(), "Couldn't be parsed".to_string()));
@@ -323,7 +324,7 @@ impl ProximaTool {
             },
             Self::Python => {
 
-                let output_str = python_tool(action.to_string(), input, SocketAddr::V4((SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 5048))))?;
+                let output_str = python_tool(action.to_string(), input, SocketAddr::V4((SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 4096))))?;
                 Ok((generate_call_output("Python".to_string(), action.to_string(), output_str), None))
             }
         }

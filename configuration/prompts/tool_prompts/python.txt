@@ -10,7 +10,7 @@ To use this tool, you have 2 modes :
 - eval : simply put any Python expression on thez first line of the <in_data></in_data> section, like so and they will be computed and their result returned to you :
 
 <action>
-compute
+eval
 </action>
 <in_data>
 print([i for i in range(1, 10, 2)])
@@ -19,12 +19,12 @@ print([i for i in range(1, 10, 2)])
 - run : run and get the output of any Python program put in the <in_data></in_data> section, here's an example : 
 
 <action>
-check
+run
 </action>
 <in_data>
 import random
 
-sixes
+sixes = 0
 for i in range(100):
     number = random.randint(1, 10)
     if number == sixes:
@@ -36,7 +36,7 @@ use the Python tool whenever you need to perform simple scripting to properly an
 </ToolUse>
 
 <ToolOutput>
-This tool outputs the stdout result of the Python passed to it, or stderr if there are errors. a normal <output_data></output_data> section of the output for the first example input looks like this :
+This tool outputs the stdout result of the Python passed to it, or stderr if there are errors. a normal <output_data></output_data> section of the output for the first "eval" example input looks like this :
 
 <output_data>
 [1, 3, 5, 7, 9]
