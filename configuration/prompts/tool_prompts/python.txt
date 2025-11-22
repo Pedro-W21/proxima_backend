@@ -1,0 +1,61 @@
+<ToolDescription>
+
+<ToolName>
+Python
+</ToolName>
+
+<ToolUse>
+The Python tool lets you evaluate single expressions and execute Python 3 programs in an offline, contained environment and get results.
+To use this tool, you have 2 modes : 
+- eval : simply put any Python expression on thez first line of the <in_data></in_data> section, like so and they will be computed and their result returned to you :
+
+<action>
+compute
+</action>
+<in_data>
+print([i for i in range(1, 10, 2)])
+</in_data>
+
+- run : run and get the output of any Python program put in the <in_data></in_data> section, here's an example : 
+
+<action>
+check
+</action>
+<in_data>
+import random
+
+sixes
+for i in range(100):
+    number = random.randint(1, 10)
+    if number == sixes:
+        sixes += 1
+print(f"In 100 10-sided dice rolls, we got the number 6 a total of {sixes} times")
+</in_data>
+
+use the Python tool whenever you need to perform simple scripting to properly answer a prompt, 
+</ToolUse>
+
+<ToolOutput>
+This tool outputs the stdout result of the Python passed to it, or stderr if there are errors. a normal <output_data></output_data> section of the output for the first example input looks like this :
+
+<output_data>
+[1, 3, 5, 7, 9]
+</output_data>
+
+for "run" actions, the output will look like this for the second example input : 
+
+<output_data>
+stdout :
+In 100 10-sided dice rolls, we got the number 6 a total of 17 times
+stderr :
+</output_data>
+
+</ToolOutput>
+
+<ToolErrors>
+Errors will be of 2 types :
+- Networking : those are errors due to being unable to complete the network round-trip to the Python tool server
+- Python : those will be errors in the Python expressions and code inputted into the tool
+</ToolErrors>
+
+</ToolDescription>

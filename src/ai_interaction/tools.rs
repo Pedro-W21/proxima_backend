@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, collections::HashMap};
+use std::{cmp::Ordering, collections::HashMap, io::{Read, Write}, net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream}, time::Duration};
 
 use html_parser::{Dom, Element, Node};
 use serde::{Deserialize, Serialize};
@@ -118,7 +118,8 @@ impl Tools {
 #[derive(Clone, Debug)]
 pub enum ProximaToolCallError {
     Parsing(ToolParsingError),
-    WebError(String)
+    WebError(String),
+    Network(String)
 }
 
 impl ProximaToolCallError {
@@ -138,7 +139,8 @@ pub fn generate_call_output(tool:String, action:String, output_data:String) -> C
 pub enum ProximaTool {
     LocalMemory,
     Calculator,
-    Web
+    Web,
+    Python
 }
 
 impl ProximaTool {
@@ -146,7 +148,8 @@ impl ProximaTool {
         match self {
             Self::LocalMemory => true,
             Self::Calculator => false,
-            Self::Web => false
+            Self::Web => false,
+            Self::Python => false,
         }
     }
     pub fn is_valid_action(&self, action:&String) -> bool {
@@ -163,6 +166,10 @@ impl ProximaTool {
                 "search" | "open" => true,
                 _ => false
             },
+            Self::Python => match action.trim() {
+                "run" | "eval" => true,
+                _ => false,
+            }
         }
     }
     pub fn try_from_string(string:String) -> Option<Self> {
@@ -170,6 +177,7 @@ impl ProximaTool {
             "Local Memory" => Some(Self::LocalMemory),
             "Calculator" => Some(Self::Calculator),
             "Web" => Some(Self::Web),
+            "Python" => Some(Self::Python),
             _ => None
         }
     }
@@ -312,6 +320,11 @@ impl ProximaTool {
                     },
                     _ => panic!("Impossible, action must be checked before this point")
                 }
+            },
+            Self::Python => {
+
+                let output_str = python_tool(action.to_string(), input, SocketAddr::V4((SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 5048))))?;
+                Ok((generate_call_output("Python".to_string(), action.to_string(), output_str), None))
             }
         }
     }
@@ -320,6 +333,7 @@ impl ProximaTool {
             Self::LocalMemory => Some(ProximaToolData::LocalMemory(HashMap::new())),
             Self::Calculator => None,
             Self::Web => None,
+            Self::Python => None
         }
     }
     pub fn get_description_string(&self) -> String {
@@ -327,13 +341,15 @@ impl ProximaTool {
             Self::LocalMemory => String::from(include_str!("../../configuration/prompts/tool_prompts/local_memory.txt")),
             Self::Calculator => String::from(include_str!("../../configuration/prompts/tool_prompts/calculator.txt")),
             Self::Web => String::from(include_str!("../../configuration/prompts/tool_prompts/web.txt")),
+            Self::Python => String::from(include_str!("../../configuration/prompts/tool_prompts/python.txt")),
         }
     }
     pub fn get_name(&self) -> String {
         match self {
             Self::Calculator => format!("Calculator"),
             Self::LocalMemory => format!("Local memory"),
-            Self::Web => format!("Web")
+            Self::Web => format!("Web"),
+            Self::Python => format!("Python")
         }
     }
 }
@@ -385,6 +401,93 @@ async fn web_open_tool(lines:Vec<String>) -> Result<String, ProximaToolCallError
 #[cfg(all(target_family = "wasm"))]
 async fn web_open_tool(lines:Vec<String>) -> Result<String, ProximaToolCallError> {
     Err(ProximaToolCallError::WebError(format!("Running a web open tool call on a WASM platform, not supported")))
+}
+
+fn read_proxima_python_toolcall_string(stream:&mut TcpStream) -> Result<String, ProximaToolCallError> {
+    let mut bytes = Vec::with_capacity(1024);
+    let mut reading_buffer = vec![0 ; 1500];
+    loop {
+        match stream.read(&mut reading_buffer) {
+            Ok(read_bytes) => {
+                
+                if reading_buffer[..read_bytes].contains(&255) {
+                    if read_bytes > 1 {
+                        for i in 0..(read_bytes-1) {
+                            bytes.push(reading_buffer[i]);
+                        }
+                    }
+                    match String::from_utf8(bytes) {
+                        Ok(string) => return Ok(string),
+                        Err(error) => return Err(ProximaToolCallError::Network(format!("Python server sent invalid response : {}", error))),
+                    }
+                }
+                else {
+                    for i in 0..(read_bytes-1) {
+                        bytes.push(reading_buffer[i]);
+                    }
+                }
+            },
+            Err(error) => return Err(ProximaToolCallError::Network(format!("Couldn't read from Python server : {}", error))),
+        }
+    }
+    
+}
+
+pub fn python_tool(mode:String, data:String, addr:SocketAddr) -> Result<String, ProximaToolCallError> {
+    match TcpStream::connect(addr) {
+        Ok(mut stream) => {
+            let mut message = format!("{}\n{}", mode, data).as_bytes().iter().map(|utf8| {*utf8}).collect::<Vec<u8>>();
+            message.push(255);
+            match stream.write_all(&message) {
+                Ok(_) => {
+                    stream.set_read_timeout(Some(Duration::from_millis(15000))).unwrap();
+                    match read_proxima_python_toolcall_string(&mut stream) {
+                        Ok(server_response) => {
+                            let mut output_stdout = String::with_capacity(1024);
+                            let mut output_stderr = String::with_capacity(1024);
+                            let mut response_slice = server_response.as_str();
+                            'parsing: loop {
+                                if response_slice.starts_with("stdout_prox") {
+                                    let mut stdout_part = response_slice.trim_start_matches("stdout_prox");
+                                    while !stdout_part.starts_with("stdout_prox") || !stdout_part.starts_with("stderr_prox") {
+                                        match stdout_part.chars().next() {
+                                            Some(stdout_char) => 
+                                            {
+                                                stdout_part = stdout_part.trim_start_matches(stdout_char);
+                                                output_stdout.push(stdout_char);
+                                            },
+                                            None => break 'parsing,
+                                        }
+                                    }
+                                    response_slice = stdout_part;
+                                }
+                                else if response_slice.starts_with("stderr_prox") {
+
+                                    let mut stderr_part = response_slice.trim_start_matches("stderr_prox");
+                                    while !stderr_part.starts_with("stdout_prox") || !stderr_part.starts_with("stderr_prox") {
+                                        match stderr_part.chars().next() {
+                                            Some(stderr_char) => 
+                                            {
+                                                stderr_part = stderr_part.trim_start_matches(stderr_char);
+                                                output_stderr.push(stderr_char);
+                                            },
+                                            None => break 'parsing,
+                                        }
+                                    }
+                                    response_slice = stderr_part;
+                                }
+                            }
+                            Ok(format!("stdout :\n{}\nstderr :\n{}\n", output_stdout, output_stderr))
+                        },
+                        Err(error) => return Err(error),
+                    }
+
+                },
+                Err(error) => return Err(ProximaToolCallError::Network(format!("Couldn't write to Python server : {}", error))),
+            }
+        },
+        Err(error) => return Err(ProximaToolCallError::Network(format!("Couldn't reach Python server : {}", error)))
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
