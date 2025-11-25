@@ -422,8 +422,8 @@ fn read_proxima_python_toolcall_string(stream:&mut TcpStream) -> Result<String, 
                         Err(error) => return Err(ProximaToolCallError::Network(format!("Python server sent invalid response : {}", error))),
                     }
                 }
-                else {
-                    for i in 0..(read_bytes-1) {
+                else if read_bytes > 0 {
+                    for i in 0..read_bytes {
                         bytes.push(reading_buffer[i]);
                     }
                 }
@@ -435,48 +435,64 @@ fn read_proxima_python_toolcall_string(stream:&mut TcpStream) -> Result<String, 
 }
 
 pub fn python_tool(mode:String, data:String, addr:SocketAddr) -> Result<String, ProximaToolCallError> {
-    match TcpStream::connect(addr) {
+    println!("Starting Python tool call");
+    match TcpStream::connect_timeout(&addr, Duration::from_millis(5000)) {
         Ok(mut stream) => {
-            let mut message = format!("{}\n{}", mode, data).as_bytes().iter().map(|utf8| {*utf8}).collect::<Vec<u8>>();
+            println!("Connected to the Python server for a tool call");
+            stream.set_read_timeout(Some(Duration::from_millis(15000))).unwrap();
+            stream.set_write_timeout(Some(Duration::from_millis(15000))).unwrap();
+            let mut message = format!("{}\n{}", mode.trim(), data).as_bytes().iter().map(|utf8| {*utf8}).collect::<Vec<u8>>();
             message.push(255);
             match stream.write_all(&message) {
                 Ok(_) => {
-                    stream.set_read_timeout(Some(Duration::from_millis(15000))).unwrap();
+
+                    println!("Sent the message");
                     match read_proxima_python_toolcall_string(&mut stream) {
                         Ok(server_response) => {
+
+                            println!("Received the full response");
                             let mut output_stdout = String::with_capacity(1024);
                             let mut output_stderr = String::with_capacity(1024);
                             let mut response_slice = server_response.as_str();
                             'parsing: loop {
-                                if response_slice.starts_with("stdout_prox") {
-                                    let mut stdout_part = response_slice.trim_start_matches("stdout_prox");
-                                    while !stdout_part.starts_with("stdout_prox") || !stdout_part.starts_with("stderr_prox") {
-                                        match stdout_part.chars().next() {
-                                            Some(stdout_char) => 
-                                            {
-                                                stdout_part = stdout_part.trim_start_matches(stdout_char);
-                                                output_stdout.push(stdout_char);
-                                            },
-                                            None => break 'parsing,
+                                if response_slice.len() >= 1 {
+                                    if response_slice.starts_with("stdout_prox") {
+                                        let mut stdout_part = response_slice.trim_start_matches("stdout_prox");
+                                        while !stdout_part.starts_with("stdout_prox") && !stdout_part.starts_with("stderr_prox") {
+                                            match stdout_part.chars().next() {
+                                                Some(stdout_char) => 
+                                                {
+                                                    stdout_part = stdout_part.trim_start_matches(stdout_char);
+                                                    output_stdout.push(stdout_char);
+                                                },
+                                                None => break 'parsing,
+                                            }
                                         }
+                                        response_slice = stdout_part;
                                     }
-                                    response_slice = stdout_part;
-                                }
-                                else if response_slice.starts_with("stderr_prox") {
+                                    else if response_slice.starts_with("stderr_prox") {
 
-                                    let mut stderr_part = response_slice.trim_start_matches("stderr_prox");
-                                    while !stderr_part.starts_with("stdout_prox") || !stderr_part.starts_with("stderr_prox") {
-                                        match stderr_part.chars().next() {
-                                            Some(stderr_char) => 
-                                            {
-                                                stderr_part = stderr_part.trim_start_matches(stderr_char);
-                                                output_stderr.push(stderr_char);
-                                            },
-                                            None => break 'parsing,
+                                        let mut stderr_part = response_slice.trim_start_matches("stderr_prox");
+                                        while !stderr_part.starts_with("stdout_prox") && !stderr_part.starts_with("stderr_prox") {
+                                            match stderr_part.chars().next() {
+                                                Some(stderr_char) => 
+                                                {
+                                                    stderr_part = stderr_part.trim_start_matches(stderr_char);
+                                                    output_stderr.push(stderr_char);
+                                                },
+                                                None => break 'parsing,
+                                            }
                                         }
+                                        response_slice = stderr_part;
                                     }
-                                    response_slice = stderr_part;
+                                    else {
+                                        return Err(ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: data.clone(), issue: response_slice.to_string() }))
+                                    }
                                 }
+                                else {
+                                    break 'parsing
+                                }
+                                
                             }
                             Ok(format!("stdout :\n{}\nstderr :\n{}\n", output_stdout, output_stderr))
                         },

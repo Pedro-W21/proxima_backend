@@ -14,4 +14,4 @@ RUN cargo build --release
 
 EXPOSE 4096
 
-CMD [ "/usr/src/app/target/release/python_tool_executor" ]
+ENTRYPOINT [ "/usr/src/app/target/release/python_tool_executor" ]

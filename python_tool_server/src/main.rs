@@ -54,28 +54,45 @@ pub struct InFlightExecution {
     executor_stream:(TcpStream, SocketAddr),
     start_time:Instant,
     thread_number:usize,
+    id:String,
     finish_sender:Sender<u16>
 }
 
 impl InFlightExecution {
-    pub fn new(proxima_stream:(TcpStream, SocketAddr), request:PythonToolRequest, thread_number:usize, port:u16, finish_sender:Sender<u16>) -> Result<Self, ()> {
-        let command = Command::new("docker").args(vec!["run", "-d", "--name", &format!("proxima_python_{}", thread_number), "-p", &format!("4096:{port}/tcp"), "proxima_python_executor:any" ]).output();
+    pub fn new(mut proxima_stream:(TcpStream, SocketAddr), request:PythonToolRequest, thread_number:usize, port:u16, finish_sender:Sender<u16>) -> Result<Self, ()> {
+        println!("Creating execution");
+        let command = Command::new("docker").args(vec!["run", "-d"/*, "--name", &format!("proxima_python_{}", thread_number)*/, "-p", &format!("127.0.0.1:{port}:4096/tcp"), "proxima_python_executor:any" ]).output();
         match command {
             Ok(output) => match String::from_utf8(output.stdout) {
                 Ok(id) => {
+
+                    println!("Trying to connect to executor");
                     let addr = SocketAddr::from((Ipv4Addr::new(127, 0, 0, 1), port));
-                    match TcpStream::connect(addr.clone()) {
+                    match TcpStream::connect_timeout(&addr, Duration::from_millis(5000)) {
                         Ok(mut python_stream) => {
-                            python_stream.set_read_timeout(Some(Duration::from_millis(1000)));
+                            println!("Connected to executor");
+
+                            println!("Sending request :\n{}", request.to_string());
+                            python_stream.set_read_timeout(Some(Duration::from_millis(10000))).unwrap();
+                            python_stream.set_write_timeout(Some(Duration::from_millis(1000))).unwrap();
                             write_proxima_string_to_stream(&mut python_stream, request.to_string());
-                            return Ok(InFlightExecution { proxima_stream, executor_stream: (python_stream, addr), start_time: Instant::now(), thread_number, finish_sender })
+                            return Ok(InFlightExecution { proxima_stream, executor_stream: (python_stream, addr), start_time: Instant::now(), thread_number, finish_sender,id })
                         },
-                        Err(_) => finish_sender.send(port).unwrap(),
+                        Err(error) => {
+                            write_proxima_string_to_stream(&mut proxima_stream.0, format!("Couldn't reach the executor : {}", error));
+                            finish_sender.send(port).unwrap()
+                        },
                     }
                 },
-                Err(_) => finish_sender.send(port).unwrap()
+                Err(error) => {
+                    write_proxima_string_to_stream(&mut proxima_stream.0, format!("Couldn't read the container creation output : {}", error));
+                    finish_sender.send(port).unwrap()
+                },
             },
-            Err(_) => finish_sender.send(port).unwrap()
+            Err(error) => {
+                write_proxima_string_to_stream(&mut proxima_stream.0, format!("Couldn't run the container creation command : {}", error));
+                finish_sender.send(port).unwrap()
+            },
         }
         Err(())
     }
@@ -85,16 +102,28 @@ impl InFlightExecution {
             let mut buf = vec![0 ; 4096];
             match self.executor_stream.0.read(&mut buf) {
                 Ok(bytes_read) => match self.proxima_stream.0.write(&buf[..bytes_read]) {
-                    Ok(_) => (),
-                    Err(_) => break
+                    Ok(_) => println!("Passed along {} bytes", bytes_read),
+                    Err(error) => {
+                        println!("Error during proxima write : {}", error);
+                        break
+                    }
                 },
-                Err(error) => break,
+                Err(error) => {
+                    println!("Error during execution read : {}", error);
+                    break
+                },
             }
+            thread::sleep(Duration::from_millis(100));
         }
         self.finish();
     }
     pub fn finish(&mut self) {
-        Command::new("docker").args(vec!["kill", &format!("proxima_python_{}", self.thread_number)]).output();
+        println!("Finished execution");
+        match self.proxima_stream.0.write(&[255]) {
+            Ok(written) => (),
+            Err(_) => ()
+        }
+        Command::new("docker").args(vec!["kill", &self.id]).output();
         self.finish_sender.send(self.executor_stream.1.port()).unwrap();
     }
 }
@@ -175,8 +204,8 @@ fn read_proxima_python_toolcall_string(stream:&mut TcpStream) -> Result<String, 
                         Err(error) => return Err(()),
                     }
                 }
-                else {
-                    for i in 0..(read_bytes-1) {
+                else if read_bytes > 0 {
+                    for i in 0..read_bytes {
                         bytes.push(reading_buffer[i]);
                     }
                 }
