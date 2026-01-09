@@ -219,7 +219,7 @@ impl<B:BackendAPI + Send + 'static> AIEndpoint<B> {
                     _ => panic!("Database access error : {}", error)
                 }
             }
-            special_bad_wait();
+            special_bad_wait().await;
             loop {
                 if self.prio_requests.is_empty() {
                     if let Ok(request) = self.requests.try_recv() {
