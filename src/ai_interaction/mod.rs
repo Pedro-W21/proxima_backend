@@ -1,4 +1,4 @@
-use std::{sync::mpmc::{self, channel, Receiver, Sender}, thread::{self, JoinHandle}};
+use std::{sync::{mpmc::{self, Receiver, Sender, channel}, mpsc::RecvTimeoutError}, thread::{self, JoinHandle}, time::Duration};
 
 use backend_api::BackendAPI;
 use endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponse, EndpointResponseVariant};
@@ -210,16 +210,20 @@ impl<B:BackendAPI + Send + 'static> AIEndpoint<B> {
     }
     pub async fn handling_loop(mut self) {
         loop {
-            match self.prio_requests.recv() {
+            match self.prio_requests.recv_timeout(Duration::from_millis(100)) {
                 Ok(request) => {
-                    self.handle_request(request).await;
+                    handle_request::<B>(self.database_sender.clone(), self.backend_conn.clone(),request).await;
                 },
-                Err(error) => panic!("Database access error : {}", error)
+                Err(error) => match error {
+                    RecvTimeoutError::Timeout => (),
+                    _ => panic!("Database access error : {}", error)
+                }
             }
+            special_bad_wait();
             loop {
                 if self.prio_requests.is_empty() {
                     if let Ok(request) = self.requests.try_recv() {
-                        self.handle_request(request).await;
+                        handle_request::<B>(self.database_sender.clone(), self.backend_conn.clone(),request).await;
                     }
                     else {
                         break;
@@ -231,30 +235,54 @@ impl<B:BackendAPI + Send + 'static> AIEndpoint<B> {
             }
         }
     }
-    pub async fn handle_request(&mut self, request:EndpointRequest) {
+}
+
+#[cfg(not(target_family = "wasm"))]
+async fn special_bad_wait() {
+    async_std::task::sleep(Duration::from_millis(900)).await;
+}
+
+#[cfg(all(target_family = "wasm"))]
+async fn special_bad_wait() {
+    panic!("This function is not supported on WASM")
+}
+
+
+#[cfg(not(target_family = "wasm"))]
+pub async fn handle_request<B:BackendAPI + Send + 'static>(db_sender:DatabaseSender, backend_conn:<B as BackendAPI>::ConnData, request:EndpointRequest) {
+    println!("Handling request !");
+    tokio::spawn(async move {
+        println!("Inside task !");
         match request.variant.clone() {
             EndpointRequestVariant::Continue => (),
             EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type, chat_settings} => {
+
+                let response = request.response_tunnel.clone();
+                let request = request.variant.clone();
                 if streaming {
-                    let db_send_clone = self.database_sender.clone();
-                    let response = request.response_tunnel.clone();
-                    let request = request.variant.clone();
-                    let backend_conn = self.backend_conn.clone();
-                    let thread = thread::spawn( move || async move {
-                        RequestHandler::new(db_send_clone, request, response, B::new(backend_conn), streaming).streaming_respond().await;
-                    });
-                    let result = thread.join().unwrap().await;
+                    RequestHandler::new(db_sender, request, response, B::new(backend_conn), streaming).streaming_respond().await;
                 }
                 else {
-                    let db_send_clone = self.database_sender.clone();
-                    let response = request.response_tunnel.clone();
-                    let request = request.variant.clone();
-                    let backend_conn = self.backend_conn.clone();
-                    let thread = thread::spawn( move || async move {
-                        RequestHandler::new(db_send_clone, request, response, B::new(backend_conn), streaming).respond().await;
-                    });
-                    let result = thread.join().unwrap().await;
+                    RequestHandler::new(db_sender, request, response, B::new(backend_conn), streaming).respond().await;
                 }
+            }
+        }
+    });
+}
+
+#[cfg(all(target_family = "wasm"))]
+pub async fn handle_request<B:BackendAPI>(db_sender:DatabaseSender, backend_conn:<B as BackendAPI>::ConnData, request:EndpointRequest) {
+    match request.variant.clone() {
+        EndpointRequestVariant::Continue => (),
+        EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type, chat_settings} => {
+
+            let response = request.response_tunnel.clone();
+            let request = request.variant.clone();
+            if streaming {
+                RequestHandler::new(db_sender, request, response, B::new(backend_conn), streaming).streaming_respond().await;
+            }
+            else {
+                RequestHandler::new(db_sender, request, response, B::new(backend_conn), streaming).respond().await;
             }
         }
     }
