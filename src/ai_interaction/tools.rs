@@ -597,6 +597,7 @@ pub async fn agent_tool(mode:String, input:String, agents_data:&AgentToolData, d
     
 }
 
+#[cfg(not(target_family = "wasm"))]
 async fn bad_async_recv<T>(recv:Receiver<T>) -> T {
     loop {
         match recv.recv_timeout(Duration::from_millis(50)) {
@@ -608,6 +609,11 @@ async fn bad_async_recv<T>(recv:Receiver<T>) -> T {
         }
         async_std::task::sleep(Duration::from_millis(450)).await
     }
+}
+
+#[cfg(all(target_family = "wasm"))]
+async fn bad_async_recv<T>(recv:Receiver<T>) -> T {
+    recv.recv().unwrap();
 }
 
 pub fn python_tool(mode:String, data:String, addr:SocketAddr) -> Result<String, ProximaToolCallError> {
