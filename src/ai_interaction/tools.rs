@@ -613,7 +613,7 @@ async fn bad_async_recv<T>(recv:Receiver<T>) -> T {
 
 #[cfg(all(target_family = "wasm"))]
 async fn bad_async_recv<T>(recv:Receiver<T>) -> T {
-    recv.recv().unwrap();
+    recv.recv().unwrap()
 }
 
 pub fn python_tool(mode:String, data:String, addr:SocketAddr) -> Result<String, ProximaToolCallError> {
