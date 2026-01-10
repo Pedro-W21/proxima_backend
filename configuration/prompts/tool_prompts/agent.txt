@@ -1,0 +1,89 @@
+<ToolDescription>
+
+<ToolName>
+Agent
+</ToolName>
+
+<ToolUse>
+The Calculator tool lets you call upon an agentic LLM to perform a specific task with chosen tools.
+
+You can give the following tools to agents :
+AGENT_TOOL_AVAILABLE_TOOLS_REPLACEME
+
+You can use the following models as agents (from fastest to slowest, slowest being generally of higher quality) :
+AGENT_TOOL_AVAILABLE_MODELS_REPLACEME
+
+The agent tool has 2 actions : "run" and "respond", use them like so :
+
+- "run" : the "run" command is used to create a new agent and give it a task, it has the following syntax :
+
+<action>
+run
+</action>
+<in_data>
+{name of the agent}
+{LLM used}
+{comma-seperated list of tools this agent is given, can be no tools}
+{prompt the agent is given, can be multiple lines}
+</in_data>
+
+for example :
+
+<action>
+run
+</action>
+<in_data>
+Coding Agent 1
+Mistral3_24B_Instruct.gguf
+Python, Web
+Create a sudoku solving algorithm using backtracking
+</in_data>
+
+- "respond" : Once an agent has given a response to your prompt, you can follow up with the agent if you consider its work incomplete, this action has the following syntax :
+
+<action>
+respond
+</action>
+<in_data>
+{name of the agent}
+{Response to the agent's last message, can be multiple lines}
+</in_data>
+
+for example : 
+
+<action>
+run
+</action>
+<in_data>
+Coding Agent 1
+Your implementation works, but it should use a single dimension list instead of lists in lists for better performance
+</in_data>
+
+The "respond" action can be carried out whenever a given agent is idle, not just after they have replied to a given prompt
+
+Use the Agent tool when you can break down a large task into multiple simpler, smaller ones that can be focused on individually, for large coding tasks for example, it is often very useful to break the task into many small functions to implement and let agents write implementations.
+</ToolUse>
+
+<ToolOutput>
+This tool outputs the responses of agents to your prompts to them, the first line of an <output_data></output_data> section is the name of the agent the response is coming from, and the rest of the lines is their response. The output format is the same for all actions.
+
+For the first example, the output may look like this :
+
+<output_data>
+Coding Agent 1
+Here's an implementation of a sudoku solver using backtracking :
+```python3
+def sudoku_solver(board):
+    # rest of message cut for brevity
+```
+</output_data>
+
+</ToolOutput>
+
+<ToolErrors>
+The following errors will appear when applicable :
+- UNKNOWN AGENT : This error will appear when trying to respond to an agent that doesn't exist
+- UNAUTHORISED TOOL : This error will appear when trying to run an agent with tools that you are not allowed to give it.
+</ToolErrors>
+
+</ToolDescription>

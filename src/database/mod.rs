@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet, VecDeque}, iter::Step, path::PathBuf, sync::{mpmc::{channel, Receiver, Sender}, mpsc::{RecvTimeoutError, SendError}}, thread, time::Duration};
+use std::{collections::{HashMap, HashSet, VecDeque}, iter::Step, path::PathBuf, sync::{LazyLock, mpmc::{Receiver, Sender, channel}, mpsc::{RecvTimeoutError, SendError}}, thread, time::Duration};
 
 use access_modes::{AccessMode, AccessModeID, AccessModes};
 use chats::{Chat, ChatID, Chats};
@@ -238,6 +238,7 @@ impl ProxDatabase {
         for i in (id..self.chats.get_chats().len()).rev() {
             let mut chat = self.chats.get_chats_mut().remove(&i).unwrap();
             chat.id = (i + 1);
+            chat.update_agent_chatids_from_insert(id);
             self.chats.get_chats_mut().insert((i + 1), chat);
         }
         self.chats.get_chats_mut().insert(id, chat);
@@ -665,6 +666,11 @@ pub struct DatabaseHandler {
     auth_sessions_rng:StdRng,
     changed_since_last_save:bool
 }
+
+static LOCAL_AUTHKEY:LazyLock<String> = LazyLock::new(|| {
+    let mut rng = StdRng::from_os_rng();
+    format!("{}", rng.next_u64())
+});
 
 
 impl DatabaseHandler {

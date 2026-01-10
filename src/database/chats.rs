@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::database::{context::ContextPosition, configuration::{ChatConfiguration, ChatConfigID}};
+use crate::{ai_interaction::tools::{ProximaTool, ProximaToolData}, database::{configuration::{ChatConfigID, ChatConfiguration}, context::ContextPosition}};
 
 use super::{access_modes::AccessModeID, context::{ContextPart, WholeContext}, devices::DeviceID, tags::TagID};
 
@@ -40,6 +40,22 @@ pub struct Chat {
 }
 
 impl Chat {
+    pub fn new_with_id(id:usize, starting_context:WholeContext, session_id:Option<SessionID>, origin_device:DeviceID, config:Option<ChatConfiguration>) -> Chat {
+        Chat {
+            context: starting_context,
+            chat_title: None,
+            session_id,
+            origin_device,
+            id,
+            tags:HashSet::new(),
+            access_modes:HashSet::from([0]),
+            latest_message:Utc::now(),
+            start_date:Utc::now(),
+            waiting_on_response:true,
+            config:config.clone().map(|config|{ config.id}),
+            latest_used_config:config
+        }
+    }
     pub fn get_context(&self) -> &WholeContext {
         &self.context
     }
@@ -72,6 +88,28 @@ impl Chat {
             _ => false
         }
     }
+
+    pub fn update_agent_chatids_from_insert(&mut self, id:usize) {
+        match &mut self.latest_used_config {
+            Some(config) => match &mut config.tools {
+                Some(tools) => for (tool, data) in &mut tools.tool_data {
+                    match tool {
+                        ProximaTool::Agent => match data {
+                            ProximaToolData::Agent( agent_data ) => for (agent, ag_data) in &mut agent_data.agents {
+                                if ag_data.chat_id >= id {
+                                    ag_data.chat_id += 1;
+                                }
+                            },
+                            _ => ()
+                        },
+                        _ => ()
+                    }
+                },
+                None => ()
+            },
+            None => ()
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -97,20 +135,7 @@ impl Chats {
     }
     pub fn create_chat(&mut self, starting_context:WholeContext, session_id:Option<SessionID>, origin_device:DeviceID, config:Option<ChatConfiguration>) -> ChatID {
         let id = self.all_chats.len();
-        self.all_chats.insert(id, Chat {
-            context: starting_context,
-            chat_title: None,
-            session_id,
-            origin_device,
-            id,
-            tags:HashSet::new(),
-            access_modes:HashSet::from([0]),
-            latest_message:Utc::now(),
-            start_date:Utc::now(),
-            waiting_on_response:true,
-            config:config.clone().map(|config|{ config.id}),
-            latest_used_config:config
-        });
+        self.all_chats.insert(id, Chat::new_with_id(id, starting_context, session_id, origin_device, config));
         id
     }
     pub fn create_possible_chat(&self, starting_context:WholeContext, session_id:Option<SessionID>, origin_device:DeviceID, config:Option<ChatConfiguration>) -> Chat {

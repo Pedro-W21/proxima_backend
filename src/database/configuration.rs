@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::{ai_interaction::tools::{ProximaTool, Tools}, database::{access_modes::AccessModeID, context::{ContextPart, ContextPosition, WholeContext}, tags::TagID}};
+use crate::{ai_interaction::tools::{ProximaTool, ProximaToolData, Tools}, database::{access_modes::AccessModeID, context::{ContextPart, ContextPosition, WholeContext}, tags::TagID}};
 
 
 pub type ChatConfigID = usize;
@@ -80,7 +80,7 @@ pub enum ChatSetting {
     AccessMode(AccessModeID),
     PrePrompt(ContextPart),
     RepeatedPrePrompt(ContextPart, RepeatPosition),
-    Tool(ProximaTool)
+    Tool(ProximaTool, Option<ProximaToolData>)
 }
 
 
@@ -93,7 +93,7 @@ pub enum RepeatPosition {
 impl ChatSetting {
     pub fn get_title(&self) -> String {
         match self {
-            Self::Tool(tool) => format!("Tool : {}", tool.get_name()),
+            Self::Tool(tool, data) => format!("Tool : {}", tool.get_name()),
             Self::AccessMode(access_mode) => format!("Access mode"),
             Self::MaxContextLength(max_ctx) => format!("Max context : {}", *max_ctx),
             Self::ResponseTokenLimit(limit) => format!("Response limit : {}", *limit),

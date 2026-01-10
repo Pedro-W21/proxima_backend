@@ -1,14 +1,14 @@
-use std::{cmp::Ordering, collections::HashMap, io::{Read, Write}, net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream}, time::Duration};
+use std::{cmp::Ordering, collections::HashMap, io::{Read, Write}, net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream}, sync::{mpmc::Receiver, mpsc::RecvTimeoutError}, time::Duration};
 
 use html_parser::{Dom, Element, Node};
 use serde::{Deserialize, Serialize};
 
-use crate::database::{context::{ContextData, ContextPart, ContextPosition, WholeContext}, configuration::ChatSetting};
+use crate::{ai_interaction::{AiEndpointSender, endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}}, database::{DatabaseItem, DatabaseItemID, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, chats::{Chat, SessionType}, configuration::{ChatConfiguration, ChatSetting}, context::{ContextData, ContextPart, ContextPosition, WholeContext}}};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Tools {
     used_tools:Vec<ProximaTool>,
-    tool_data:HashMap<ProximaTool, ProximaToolData>
+    pub tool_data:HashMap<ProximaTool, ProximaToolData>
 }
 
 #[derive(Clone, Debug)]
@@ -22,18 +22,27 @@ pub enum ToolParsingError {
 impl Tools {
     pub fn try_from_settings(settings:Vec<ChatSetting>) -> Option<Self> {
         let mut used_tools = Vec::new();
+        let mut tool_data = HashMap::new();
         for setting in settings {
             match setting {
-                ChatSetting::Tool(tool) => used_tools.push(tool),
+                ChatSetting::Tool(tool, data) => {
+                    used_tools.push(tool.clone());
+                    if data.is_some() {
+                        tool_data.insert(tool.clone(), data.unwrap());
+                    }
+                },
                 _ => ()
             }
         }
         if used_tools.len() > 0 {
-            let mut tool_data = HashMap::new();
             for tool in &used_tools {
                 match tool.get_empty_data() {
-                    Some(empty_data) => tool_data.insert(tool.clone(), empty_data),
-                    None => None
+                    Some(empty_data) => 
+                    match tool_data.get(&tool) {
+                        Some(_) => (),
+                        None => {tool_data.insert(tool.clone(), empty_data);}
+                    },
+                    None => ()
                 };
             }
             Some(Tools { used_tools, tool_data })
@@ -52,12 +61,12 @@ impl Tools {
     pub fn get_tool_calling_sys_prompt(&self) -> ContextPart {
         let mut base = String::from_utf8(Vec::from(include_bytes!("../../configuration/prompts/tool_prompts/tool_use.txt"))).unwrap();
         for tool in &self.used_tools {
-            base += &tool.get_description_string();
+            base += &tool.get_description_string(self.tool_data.get(tool));
         }
         base += &String::from("\n</ToolUse>");
         ContextPart::new(vec![ContextData::Text(base)], ContextPosition::System)
     }
-    pub async fn call(&self, call_element:Element) -> Result<(ContextData, Self), ContextPart> {
+    pub async fn call(&self, call_element:Element, database_connection:DatabaseSender, ai_sender:AiEndpointSender) -> Result<(ContextData, Self), ContextPart> {
         dbg!(call_element.clone());
         if call_element.children.len() == 3 {
             let mut tool_name = String::new();
@@ -95,7 +104,7 @@ impl Tools {
                         },
                         _ => return Err(ProximaToolCallError::Parsing(ToolParsingError::NotAnElement).generate_error_output(tool_name, action))
                     }
-                    return tool.respond_to(action.clone(), inputs, self.tool_data.get(&tool)).await.map(|(context, new_data)| {(context, 
+                    return tool.respond_to(action.clone(), inputs, self.tool_data.get(&tool), database_connection, ai_sender).await.map(|(context, new_data)| {(context, 
                     match new_data {
                         Some(new_data) => {
                             let mut new_self = self.clone();
@@ -120,7 +129,8 @@ impl Tools {
 pub enum ProximaToolCallError {
     Parsing(ToolParsingError),
     WebError(String),
-    Network(String)
+    Network(String),
+    AgentError(String)
 }
 
 impl ProximaToolCallError {
@@ -141,7 +151,8 @@ pub enum ProximaTool {
     LocalMemory,
     Calculator,
     Web,
-    Python
+    Python,
+    Agent
 }
 
 impl ProximaTool {
@@ -151,6 +162,7 @@ impl ProximaTool {
             Self::Calculator => false,
             Self::Web => false,
             Self::Python => false,
+            Self::Agent => false
         }
     }
     pub fn is_valid_action(&self, action:&String) -> bool {
@@ -170,7 +182,20 @@ impl ProximaTool {
             Self::Python => match action.trim() {
                 "run" | "eval" => true,
                 _ => false,
+            },
+            Self::Agent => match action.trim() {
+                "run" | "respond" => true,
+                _ => false
             }
+        }
+    }
+    pub fn get_agent_tool_description(&self) -> String {
+        match self {
+            Self::LocalMemory => "Storage and repetition of memories in a given chat, useful for very long term tasks".to_string(),
+            Self::Calculator => "Computation of literal mathematical expressions".to_string(),
+            Self::Python => "Execution of Python 3 expressions and programs".to_string(),
+            Self::Web => "Web search and web page opening to gather precise information from the internet".to_string(),
+            Self::Agent => "Running and keeping tabs on autonomous AI agents".to_string()
         }
     }
     pub fn try_from_string(string:String) -> Option<Self> {
@@ -179,10 +204,11 @@ impl ProximaTool {
             "Calculator" => Some(Self::Calculator),
             "Web" => Some(Self::Web),
             "Python" => Some(Self::Python),
+            "Agent" => Some(Self::Agent),
             _ => None
         }
     }
-    pub async fn respond_to(&self, action:String, input:String, data:Option<&ProximaToolData>) -> Result<(ContextData, Option<ProximaToolData>), ProximaToolCallError> {
+    pub async fn respond_to(&self, action:String, input:String, data:Option<&ProximaToolData>, database_connection:DatabaseSender, ai_sender:AiEndpointSender) -> Result<(ContextData, Option<ProximaToolData>), ProximaToolCallError> {
         match self {
             Self::LocalMemory => {
                 let mut new_data = data.unwrap().get_local_mem_data();
@@ -326,6 +352,10 @@ impl ProximaTool {
 
                 let output_str = python_tool(action.to_string(), input, SocketAddr::V4((SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 4096))))?;
                 Ok((generate_call_output("Python".to_string(), action.to_string(), output_str), None))
+            },
+            Self::Agent => {
+                let (output_str, new_data) = agent_tool(action.to_string(), input, data.unwrap().get_agent_tool_data(), database_connection, ai_sender).await?;
+                Ok((generate_call_output("Agent".to_string(), action.to_string(), output_str), new_data))
             }
         }
     }
@@ -334,15 +364,31 @@ impl ProximaTool {
             Self::LocalMemory => Some(ProximaToolData::LocalMemory(HashMap::new())),
             Self::Calculator => None,
             Self::Web => None,
-            Self::Python => None
+            Self::Python => None,
+            Self::Agent => Some(
+                ProximaToolData::Agent (
+                    AgentToolData { 
+                        agents: HashMap::with_capacity(4),
+                        agent_count: 0,
+                        allocatable_tools: vec![]
+                    }
+                )
+            )
         }
     }
-    pub fn get_description_string(&self) -> String {
+    pub fn get_description_string(&self, data:Option<&ProximaToolData>) -> String {
         match self {
             Self::LocalMemory => String::from(include_str!("../../configuration/prompts/tool_prompts/local_memory.txt")),
             Self::Calculator => String::from(include_str!("../../configuration/prompts/tool_prompts/calculator.txt")),
             Self::Web => String::from(include_str!("../../configuration/prompts/tool_prompts/web.txt")),
             Self::Python => String::from(include_str!("../../configuration/prompts/tool_prompts/python.txt")),
+            Self::Agent => {
+                let mut base = String::from(include_str!("../../configuration/prompts/tool_prompts/agent.txt"));
+                let tool_data = data.unwrap().get_agent_tool_data();
+                base = base.replace("AGENT_TOOL_AVAILABLE_TOOLS_REPLACEME", &tool_data.allocatable_tools.iter().map(|tool| {format!("- {}: {}\n", tool.get_name(), tool.get_agent_tool_description())}).collect::<Vec<String>>().concat());
+                base = base.replace("AGENT_TOOL_AVAILABLE_MODELS_REPLACEME", "- default model");
+                base
+            }
         }
     }
     pub fn get_name(&self) -> String {
@@ -350,7 +396,8 @@ impl ProximaTool {
             Self::Calculator => format!("Calculator"),
             Self::LocalMemory => format!("Local memory"),
             Self::Web => format!("Web"),
-            Self::Python => format!("Python")
+            Self::Python => format!("Python"),
+            Self::Agent => format!("Agent")
         }
     }
 }
@@ -434,6 +481,135 @@ fn read_proxima_python_toolcall_string(stream:&mut TcpStream) -> Result<String, 
     
 }
 
+pub async fn agent_tool(mode:String, input:String, agents_data:&AgentToolData, database_connection:DatabaseSender, ai_sender:AiEndpointSender) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
+    let mut new_data = agents_data.clone();
+    let input_lines:Vec<String> = input.trim().lines().map(|line| {line.trim().to_string()}).collect();
+    if input_lines.len() >= 1 {
+        let agent_name = input_lines[0].trim();
+        match mode.trim() {
+            "run" => {
+                if input_lines.len() >= 4 {
+                    let model = input_lines[1].clone();
+                    let tools:Vec<Option<ProximaTool>> = input_lines[2].clone().split(',').map(|tool_name| {ProximaTool::try_from_string(String::from(tool_name.trim()))}).collect();
+                    let final_tools:Vec<ProximaTool> = tools.iter().filter_map(|val| {match val {Some(tool) => Some(tool.clone()), None => None}}).collect();
+                    for tool in &final_tools {
+                        if !agents_data.allocatable_tools.contains(&tool) {
+                            return Err(ProximaToolCallError::AgentError(format!("Tool {} not authorised for use in agentic work", tool.get_name())))
+                        }
+                    }
+
+                    let agent_prompt = input_lines[3..].iter().map(|val| {format!("{}\n", val.clone())}).collect::<Vec<String>>().concat();
+                    let configuration = ChatConfiguration::new(format!("{} config", agent_name), final_tools.iter().map(|tool| {ChatSetting::Tool(tool.clone(), None)}).collect());
+                    let context_part = ContextPart::new_user_prompt_with_tools(vec![ContextData::Text(agent_prompt)]);
+                    let starting_context = WholeContext::new_with_all_settings(vec![context_part], &configuration);
+                    let mut chat = Chat::new_with_id(0, starting_context.clone(), None, 0, Some(configuration));
+
+                    let (ai_req, recv) = EndpointRequest::new(EndpointRequestVariant::RespondToFullPrompt { whole_context: starting_context, streaming: false, session_type: SessionType::Chat, chat_settings: chat.latest_used_config.clone() });
+                    ai_sender.send_prio(ai_req);
+                    match bad_async_recv(recv).await.variant {
+                        EndpointResponseVariant::MultiTurnBlock(whole_context) => {
+                            let last_part = whole_context.get_parts().last().unwrap().clone();
+                            chat.context = whole_context;
+                            let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Add(DatabaseItem::Chat(chat)), None);
+                            database_connection.send_normal(db_req);
+                            match bad_async_recv(db_recv).await.variant {
+                                DatabaseReplyVariant::AddedItem(DatabaseItemID::Chat(id)) => new_data.agents.insert(agent_name.to_string(), AgentData { model, allowed_tools: final_tools, status:AgentStatus::Standby, chat_id: id }),
+                                _ => panic!("Impossible to get another reply")
+                            };
+                            new_data.agent_count += 1;
+                            match Dom::parse(&last_part.data_to_text().concat()) {
+                                Ok(parsed) => match parsed.children.iter().find(|child| {match child {
+                                    Node::Element(elt) => elt.name.trim() == "response",
+                                    _ => false
+                                }}) {
+                                    Some(response) => match response {
+                                        Node::Text(txt) => Ok((format!("{agent_name}\n{txt}\n"), Some(ProximaToolData::Agent(new_data)))),
+                                        _ => Err(ProximaToolCallError::AgentError(format!("Agent {} didn't give a properly formatted response", agent_name)))
+                                    },
+                                    None => Err(ProximaToolCallError::AgentError(format!("Agent {} didn't give a properly formatted response", agent_name)))
+                                },
+                                Err(_) => panic!("Should be parseable at this stage")
+                            }
+                        },
+                        _ => panic!("Should return a multi-turn block")
+                    }
+                    // TODO : 
+                    // create context and configuration
+                    // create Chat struct
+                    // send AI request and receive answer
+                    // Update Chat struct and add it to DB
+                    // Save ID into agent data and update that
+                }
+                else {
+                    Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 4, found: input_lines.len(), remarks:String::from("") }))
+                }
+            },
+            "respond" => {
+                if new_data.agents.keys().find(|name| {*name == agent_name}).is_some() {
+                    let (req, recv) = DatabaseRequest::new(DatabaseRequestVariant::Get(DatabaseItemID::Chat(agents_data.agents.get(&String::from(agent_name)).unwrap().chat_id)), None);
+                    database_connection.send_normal(req);
+                    let mut chat = match bad_async_recv(recv).await.variant {
+                        DatabaseReplyVariant::ReturnedItem(data) => match data {
+                            DatabaseItem::Chat(chat_data) => chat_data,
+                            _ => panic!("Supposed to return a chat")
+                        },
+                        _ => panic!("Supposed to return a database item")
+                    };
+                    let mut new_context = chat.context.clone();
+                    new_context.add_part(ContextPart::new(vec![ContextData::Text(format!("<user_input>\n{}\n</user_input>", input_lines[1..].iter().map(|val| {format!("{}\n", val.clone())}).collect::<Vec<String>>().concat()))], ContextPosition::User));
+
+                    let (ai_req, recv) = EndpointRequest::new(EndpointRequestVariant::RespondToFullPrompt { whole_context: new_context, streaming: false, session_type: SessionType::Chat, chat_settings: chat.latest_used_config.clone() });
+                    ai_sender.send_prio(ai_req);
+                    match bad_async_recv(recv).await.variant {
+                        EndpointResponseVariant::MultiTurnBlock(whole_context) => {
+                            let last_part = whole_context.get_parts().last().unwrap().clone();
+                            chat.context = whole_context;
+                            let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Update(DatabaseItem::Chat(chat)), None);
+                            database_connection.send_normal(db_req);
+                            bad_async_recv(db_recv).await;
+                            match Dom::parse(&last_part.data_to_text().concat()) {
+                                Ok(parsed) => match parsed.children.iter().find(|child| {match child {
+                                    Node::Element(elt) => elt.name.trim() == "response",
+                                    _ => false
+                                }}) {
+                                    Some(response) => match response {
+                                        Node::Text(txt) => Ok((format!("{agent_name}\n{txt}\n"), Some(ProximaToolData::Agent(new_data)))),
+                                        _ => Err(ProximaToolCallError::AgentError(format!("Agent {} didn't give a properly formatted response", agent_name)))
+                                    },
+                                    None => Err(ProximaToolCallError::AgentError(format!("Agent {} didn't give a properly formatted response", agent_name)))
+                                },
+                                Err(_) => panic!("Should be parseable at this stage")
+                            }
+                        },
+                        _ => panic!("Should return a multi-turn block")
+                    }
+                }
+                else {
+                    Err(ProximaToolCallError::AgentError(format!("Agent named \"{}\" doesn't exist", agent_name)))
+                }
+            },
+            _ => panic!("Impossible at this stage")
+        }
+    }
+    else {
+        Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 2, found: 1, remarks:String::from("") }))
+    }
+    
+}
+
+async fn bad_async_recv<T>(recv:Receiver<T>) -> T {
+    loop {
+        match recv.recv_timeout(Duration::from_millis(50)) {
+            Ok(received) => return received,
+            Err(error) => match error {
+                RecvTimeoutError::Timeout => (),
+                _ => panic!("Channel disconnected")
+            }
+        }
+        async_std::task::sleep(Duration::from_millis(450)).await
+    }
+}
+
 pub fn python_tool(mode:String, data:String, addr:SocketAddr) -> Result<String, ProximaToolCallError> {
     println!("Starting Python tool call");
     match TcpStream::connect_timeout(&addr, Duration::from_millis(5000)) {
@@ -507,32 +683,63 @@ pub fn python_tool(mode:String, data:String, addr:SocketAddr) -> Result<String, 
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum ProximaToolData {
-    LocalMemory(HashMap<String, String>)
+    LocalMemory(HashMap<String, String>),
+    Agent(AgentToolData)
 }
 
 impl ProximaToolData {
     pub fn get_data_to_insert(&self) -> ContextData {
         match self {
-            Self::LocalMemory(key_value) => ContextData::Text(format!("<LocalMemory> local memory data : {:?}<LocalMemory>", key_value.clone()))
+            Self::LocalMemory(key_value) => ContextData::Text(format!("<LocalMemory> local memory data : {:?}</LocalMemory>", key_value.clone())),
+            Self::Agent(data) => ContextData::Text(format!("")),
         }
     }
     pub fn get_local_mem_data(&self) -> HashMap<String, String> {
         match self {
-            Self::LocalMemory(key_value) => key_value.clone()
+            Self::LocalMemory(key_value) => key_value.clone(),
+            _ => panic!("Not local memory")
+        }
+    }
+    pub fn get_agent_tool_data(&self) -> &AgentToolData {
+        match self {
+            Self::Agent(data) => data,
+            _ => panic!("Not agent tool")
         }
     }
 }
 
 
-pub async fn handle_tool_calling_response(response:ContextPart, tools:Tools) -> (ContextPart, Tools) {
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct AgentToolData {
+    pub agents:HashMap<String, AgentData>,
+    agent_count:usize,
+    allocatable_tools:Vec<ProximaTool>
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct AgentData {
+    model:String,
+    allowed_tools:Vec<ProximaTool>,
+    status:AgentStatus,
+    pub chat_id:usize,
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub enum AgentStatus {
+    Running,
+    Standby
+}
+
+
+pub async fn handle_tool_calling_response(response:ContextPart, tools:Tools, database_connection:DatabaseSender, ai_sender:AiEndpointSender) -> (ContextPart, Tools) {
     let mut out_context = ContextPart::new(vec![ContextData::Text(format!("<outputs>\n"))], ContextPosition::Tool);
     let mut out_tools = tools.clone();
     for data in response.get_data() {
         match data {
             ContextData::Text(text) => {
-                let (part, part_tools) = handle_tool_calling_context_data(text, out_tools.clone()).await;
+                let (part, part_tools) = handle_tool_calling_context_data(text, out_tools.clone(), database_connection.clone(), ai_sender.clone()).await;
                 out_tools = part_tools;
                 out_context.merge_data_with(part);
             },
@@ -587,7 +794,7 @@ pub fn looks_like_nonstandard_final_response(response:&ContextPart) -> bool {
     !(found_start && found_end) && !found_call
 }
 
-async fn handle_tool_calling_context_data(text:&String, mut tools:Tools) -> (ContextPart, Tools) {
+async fn handle_tool_calling_context_data(text:&String, mut tools:Tools, database_connection:DatabaseSender, ai_sender:AiEndpointSender) -> (ContextPart, Tools) {
     match Dom::parse(text) {
         Ok(parsed) => {
             let mut data = Vec::with_capacity(2);
@@ -596,7 +803,7 @@ async fn handle_tool_calling_context_data(text:&String, mut tools:Tools) -> (Con
                     Node::Element(elt) => {
                         match elt.name.trim() {
                             "call" => {
-                                match tools.call(elt).await {
+                                match tools.call(elt, database_connection.clone(), ai_sender.clone()).await {
                                     Ok((context_data, out_tools)) => {
                                         data.push(context_data);
                                         tools = out_tools;

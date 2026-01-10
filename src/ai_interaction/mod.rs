@@ -15,11 +15,13 @@ pub struct AIEndpoint<B:BackendAPI> {
     backend_conn:B::ConnData,
     database_sender:DatabaseSender,
     prio_requests:Receiver<EndpointRequest>,
-    requests:Receiver<EndpointRequest>
+    requests:Receiver<EndpointRequest>,
+    self_sender:AiEndpointSender
 }
 
 pub struct RequestHandler<B:BackendAPI> {
     database_sender:DatabaseSender,
+    self_sender:AiEndpointSender,
     request_variant:EndpointRequestVariant,
     response_sender:Sender<EndpointResponse>,
     backend:B,
@@ -27,8 +29,8 @@ pub struct RequestHandler<B:BackendAPI> {
 }
 
 impl<B:BackendAPI> RequestHandler<B> {
-    pub fn new(database_sender:DatabaseSender, request_variant:EndpointRequestVariant, response_sender:Sender<EndpointResponse>, backend:B, streaming:bool) -> Self {
-        Self { database_sender, request_variant, response_sender, backend, streaming }
+    pub fn new(database_sender:DatabaseSender, request_variant:EndpointRequestVariant, response_sender:Sender<EndpointResponse>, backend:B, streaming:bool, self_sender:AiEndpointSender) -> Self {
+        Self { database_sender, request_variant, response_sender, backend, streaming, self_sender }
     }
     pub async fn respond(mut self) {
         match self.request_variant {
@@ -46,7 +48,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                                 let mut new_tools = tools.clone();
                                 let mut i = 0;
                                 while !is_valid_tool_calling_response(&response) && !looks_like_nonstandard_final_response(&response) && i < 8 {
-                                    let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone()).await;
+                                    let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone(), self.database_sender.clone(), self.self_sender.clone()).await;
                                     whole_context.add_part(response.clone());
                                     whole_context.add_part(added_context);
                                     whole_context.add_part(new_tools.get_tool_data_insert());
@@ -105,7 +107,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                                 let mut new_tools = tools.clone();
                                 let mut i = 0;
                                 while !is_valid_tool_calling_response(&response) && !looks_like_nonstandard_final_response(&response) && i < 8 {
-                                    let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone()).await;
+                                    let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone(), self.database_sender.clone(), self.self_sender.clone()).await;
                                     whole_context.add_part(response.clone());
                                     send_context_part_streaming_blocking(added_context.clone(), self.response_sender.clone());
                                     whole_context.add_part(added_context);
@@ -189,7 +191,7 @@ fn send_context_part_streaming_blocking(part:ContextPart, sender:Sender<Endpoint
         }
     }
 }
-
+#[derive(Clone)]
 pub struct AiEndpointSender {
     prio_request_sender:Sender<EndpointRequest>,
     request_sender:Sender<EndpointRequest>
@@ -205,14 +207,14 @@ impl AiEndpointSender {
 }
 
 impl<B:BackendAPI + Send + 'static> AIEndpoint<B> {
-    pub fn new(prio_requests:Receiver<EndpointRequest>, requests:Receiver<EndpointRequest>, conn_data:B::ConnData, database_sender:DatabaseSender) -> Self {
-        Self { backend_conn: conn_data, database_sender, prio_requests, requests }
+    pub fn new(prio_requests:Receiver<EndpointRequest>, requests:Receiver<EndpointRequest>, conn_data:B::ConnData, database_sender:DatabaseSender, self_sender:AiEndpointSender) -> Self {
+        Self { backend_conn: conn_data, database_sender, prio_requests, requests, self_sender }
     }
     pub async fn handling_loop(mut self) {
         loop {
             match self.prio_requests.recv_timeout(Duration::from_millis(100)) {
                 Ok(request) => {
-                    handle_request::<B>(self.database_sender.clone(), self.backend_conn.clone(),request).await;
+                    handle_request::<B>(self.database_sender.clone(), self.backend_conn.clone(),request, self.self_sender.clone()).await;
                 },
                 Err(error) => match error {
                     RecvTimeoutError::Timeout => (),
@@ -223,7 +225,7 @@ impl<B:BackendAPI + Send + 'static> AIEndpoint<B> {
             loop {
                 if self.prio_requests.is_empty() {
                     if let Ok(request) = self.requests.try_recv() {
-                        handle_request::<B>(self.database_sender.clone(), self.backend_conn.clone(),request).await;
+                        handle_request::<B>(self.database_sender.clone(), self.backend_conn.clone(),request, self.self_sender.clone()).await;
                     }
                     else {
                         break;
@@ -249,7 +251,7 @@ async fn special_bad_wait() {
 
 
 #[cfg(not(target_family = "wasm"))]
-pub async fn handle_request<B:BackendAPI + Send + 'static>(db_sender:DatabaseSender, backend_conn:<B as BackendAPI>::ConnData, request:EndpointRequest) {
+pub async fn handle_request<B:BackendAPI + Send + 'static>(db_sender:DatabaseSender, backend_conn:<B as BackendAPI>::ConnData, request:EndpointRequest, self_sender:AiEndpointSender) {
     println!("Handling request !");
     tokio::spawn(async move {
         println!("Inside task !");
@@ -260,10 +262,10 @@ pub async fn handle_request<B:BackendAPI + Send + 'static>(db_sender:DatabaseSen
                 let response = request.response_tunnel.clone();
                 let request = request.variant.clone();
                 if streaming {
-                    RequestHandler::new(db_sender, request, response, B::new(backend_conn), streaming).streaming_respond().await;
+                    RequestHandler::new(db_sender, request, response, B::new(backend_conn), streaming, self_sender).streaming_respond().await;
                 }
                 else {
-                    RequestHandler::new(db_sender, request, response, B::new(backend_conn), streaming).respond().await;
+                    RequestHandler::new(db_sender, request, response, B::new(backend_conn), streaming, self_sender).respond().await;
                 }
             }
         }
@@ -290,8 +292,10 @@ pub async fn handle_request<B:BackendAPI>(db_sender:DatabaseSender, backend_conn
 
 pub async fn launch_ai_endpoint_thread<B:BackendAPI + Send + 'static>(conn_data:B::ConnData,database_sender:DatabaseSender, prio_send:Sender<EndpointRequest>, prio_rcv:Receiver<EndpointRequest>, normal_send:Sender<EndpointRequest>, normal_rcv:Receiver<EndpointRequest>) -> (AiEndpointSender, JoinHandle<impl Future<Output = ()>>) {
     let conn_copy = conn_data.clone();
+    let ai_endpoint_sender = AiEndpointSender { prio_request_sender:prio_send, request_sender:normal_send };
+    let ai_sender_clone= ai_endpoint_sender.clone();
     let ai_thread = thread::spawn(move || async move {
-        AIEndpoint::<B>::new(prio_rcv, normal_rcv, conn_copy, database_sender).handling_loop().await;
+        AIEndpoint::<B>::new(prio_rcv, normal_rcv, conn_copy, database_sender, ai_sender_clone).handling_loop().await;
     });
-    (AiEndpointSender { prio_request_sender:prio_send, request_sender:normal_send }, ai_thread)
+    (ai_endpoint_sender, ai_thread)
 }
