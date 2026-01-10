@@ -724,6 +724,12 @@ pub struct AgentToolData {
     allocatable_tools:Vec<ProximaTool>
 }
 
+impl AgentToolData {
+    pub fn new(allocatable:Vec<ProximaTool>) -> Self {
+        Self { agents: HashMap::with_capacity(4), agent_count: 0, allocatable_tools:allocatable }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct AgentData {
     model:String,
