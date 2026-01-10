@@ -273,7 +273,7 @@ pub async fn handle_request<B:BackendAPI + Send + 'static>(db_sender:DatabaseSen
 }
 
 #[cfg(all(target_family = "wasm"))]
-pub async fn handle_request<B:BackendAPI>(db_sender:DatabaseSender, backend_conn:<B as BackendAPI>::ConnData, request:EndpointRequest) {
+pub async fn handle_request<B:BackendAPI>(db_sender:DatabaseSender, backend_conn:<B as BackendAPI>::ConnData, request:EndpointRequest, self_sender:AiEndpointSender) {
     match request.variant.clone() {
         EndpointRequestVariant::Continue => (),
         EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type, chat_settings} => {
@@ -281,10 +281,10 @@ pub async fn handle_request<B:BackendAPI>(db_sender:DatabaseSender, backend_conn
             let response = request.response_tunnel.clone();
             let request = request.variant.clone();
             if streaming {
-                RequestHandler::new(db_sender, request, response, B::new(backend_conn), streaming).streaming_respond().await;
+                RequestHandler::new(db_sender, request, response, B::new(backend_conn), streaming, self_sender).streaming_respond().await;
             }
             else {
-                RequestHandler::new(db_sender, request, response, B::new(backend_conn), streaming).respond().await;
+                RequestHandler::new(db_sender, request, response, B::new(backend_conn), streaming, self_sender).respond().await;
             }
         }
     }
