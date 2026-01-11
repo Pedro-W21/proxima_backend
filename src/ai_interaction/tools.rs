@@ -489,6 +489,7 @@ pub async fn agent_tool(mode:String, input:String, agents_data:&AgentToolData, d
         match mode.trim() {
             "run" => {
                 if input_lines.len() >= 4 {
+                    println!("[Agent] Calling upon new agent : {}", agent_name);
                     let model = input_lines[1].clone();
                     let tools:Vec<Option<ProximaTool>> = input_lines[2].clone().split(',').map(|tool_name| {ProximaTool::try_from_string(String::from(tool_name.trim()))}).collect();
                     let final_tools:Vec<ProximaTool> = tools.iter().filter_map(|val| {match val {Some(tool) => Some(tool.clone()), None => None}}).collect();
@@ -505,17 +506,27 @@ pub async fn agent_tool(mode:String, input:String, agents_data:&AgentToolData, d
                     let mut chat = Chat::new_with_id(0, starting_context.clone(), None, 0, Some(configuration));
 
                     let (ai_req, recv) = EndpointRequest::new(EndpointRequestVariant::RespondToFullPrompt { whole_context: starting_context, streaming: false, session_type: SessionType::Chat, chat_settings: chat.latest_used_config.clone() });
+                    
+                    println!("[Agent] Sending agent prompt for : {}", agent_name);
                     ai_sender.send_prio(ai_req);
                     match bad_async_recv(recv).await.variant {
                         EndpointResponseVariant::MultiTurnBlock(whole_context) => {
+                            println!("[Agent] Received agent prompt");
                             let last_part = whole_context.get_parts().last().unwrap().clone();
                             chat.context = whole_context;
+
                             let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Add(DatabaseItem::Chat(chat)), None);
+
+                            println!("[Agent] Created database request");
                             database_connection.send_normal(db_req);
+                            
+                            println!("[Agent] Sent database request");
                             match bad_async_recv(db_recv).await.variant {
                                 DatabaseReplyVariant::AddedItem(DatabaseItemID::Chat(id)) => new_data.agents.insert(agent_name.to_string(), AgentData { model, allowed_tools: final_tools, status:AgentStatus::Standby, chat_id: id }),
                                 _ => panic!("Impossible to get another reply")
                             };
+
+                            println!("[Agent] Received database response");
                             new_data.agent_count += 1;
                             match Dom::parse(&last_part.data_to_text().concat()) {
                                 Ok(parsed) => match parsed.children.iter().find(|child| {match child {
@@ -599,16 +610,23 @@ pub async fn agent_tool(mode:String, input:String, agents_data:&AgentToolData, d
 
 #[cfg(not(target_family = "wasm"))]
 async fn bad_async_recv<T>(recv:Receiver<T>) -> T {
+    let value;
     loop {
+        println!("Waiting to receive data");
         match recv.recv_timeout(Duration::from_millis(50)) {
-            Ok(received) => return received,
+            Ok(received) => {
+                value = received;
+                println!("Received data");
+                break;
+            },
             Err(error) => match error {
                 RecvTimeoutError::Timeout => (),
                 _ => panic!("Channel disconnected")
             }
         }
-        async_std::task::sleep(Duration::from_millis(450)).await
+        async_std::task::sleep(Duration::from_millis(450)).await;
     }
+    value
 }
 
 #[cfg(all(target_family = "wasm"))]

@@ -13,7 +13,7 @@ pub struct EndpointRequest {
 
 impl EndpointRequest {
     pub fn new(variant:EndpointRequestVariant) -> (Self, Receiver<EndpointResponse>) {
-        let (response_tunnel, receiver_tunnel) = sync_channel(0);
+        let (response_tunnel, receiver_tunnel) = channel();
         (
             Self {
                 variant,
