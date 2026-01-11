@@ -9,6 +9,10 @@ The Web tool lets you
 There are 2 different actions you can perform with this tool : 
 - search : put the number of results you want and a query within quotes, one at a time on each line, like so : 
 
+<call>
+<tool>
+Web
+</tool>
 <action>
 search
 </action>
@@ -16,12 +20,17 @@ search
 2 "Who is the current prime minister of Canada ?"
 10 "What's the most common bird species in Turkey ?"
 </in_data>
+</call>
 
 You can use the number of results parameter to manage the amount of information you are fetching. facts about very popular subjects should need few results to get a conclusive, trustable answer, whereas niche questions may need upwards of 5 to 20 results to be able to start to answer them.
 
 
 - open : get the HTML code of one or more web pages as URLs, like so : 
 
+<call>
+<tool>
+Web
+</tool>
 <action>
 open
 </action>
@@ -29,6 +38,7 @@ open
 https://example.com
 https://en.wikipedia.org/wiki/Main_Page
 </in_data>
+</call>
 
 use the Web tool whenever you need to get precise information on a recent subject 
 </ToolUse>

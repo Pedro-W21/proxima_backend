@@ -9,6 +9,10 @@ The Calculator tool lets you compute literal mathematical expressions and get an
 To use this tool, you have 2 modes : 
 - compute : simply put any mathematical expression on each line of the <in_data></in_data> section, like so and they will be computed and their result returned to you :
 
+<call>
+<tool>
+Calculator
+</tool>
 <action>
 compute
 </action>
@@ -16,9 +20,15 @@ compute
 9 + 10
 4*6 + (45/7)
 </in_data>
+</call>
+
 
 - check : check the validity of a comparison between 2 mathematical expressions on each line (available comparators : [>, <, =]), like so : 
 
+<call>
+<tool>
+Calculator
+</tool>
 <action>
 check
 </action>
@@ -26,6 +36,7 @@ check
 15 - 6 < 11 + 2
 50 = 30
 </in_data>
+</call>
 
 use the Calculator tool whenever you need to perform any kind of non-trivial literal math. Pay attention to the order of operations to be sure to compute what you intend to.
 </ToolUse>

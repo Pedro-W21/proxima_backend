@@ -5,7 +5,7 @@ Agent
 </ToolName>
 
 <ToolUse>
-The Calculator tool lets you call upon an agentic LLM to perform a specific task with chosen tools.
+The Agent tool lets you call upon an agentic LLM to perform a specific task with chosen tools.
 
 You can give the following tools to agents :
 AGENT_TOOL_AVAILABLE_TOOLS_REPLACEME
@@ -16,7 +16,10 @@ AGENT_TOOL_AVAILABLE_MODELS_REPLACEME
 The agent tool has 2 actions : "run" and "respond", use them like so :
 
 - "run" : the "run" command is used to create a new agent and give it a task, it has the following syntax :
-
+<call>
+<tool>
+Agent
+</tool>
 <action>
 run
 </action>
@@ -26,9 +29,15 @@ run
 {comma-seperated list of tools this agent is given, can be no tools}
 {prompt the agent is given, can be multiple lines}
 </in_data>
+</call>
+
 
 for example :
 
+<call>
+<tool>
+Agent
+</tool>
 <action>
 run
 </action>
@@ -38,9 +47,14 @@ Mistral3_24B_Instruct.gguf
 Python, Web
 Create a sudoku solving algorithm using backtracking
 </in_data>
+</call>
 
 - "respond" : Once an agent has given a response to your prompt, you can follow up with the agent if you consider its work incomplete, this action has the following syntax :
 
+<call>
+<tool>
+Agent
+</tool>
 <action>
 respond
 </action>
@@ -48,16 +62,22 @@ respond
 {name of the agent}
 {Response to the agent's last message, can be multiple lines}
 </in_data>
+</call>
 
 for example : 
 
+<call>
+<tool>
+Agent
+</tool>
 <action>
-run
+respond
 </action>
 <in_data>
 Coding Agent 1
 Your implementation works, but it should use a single dimension list instead of lists in lists for better performance
 </in_data>
+</call>
 
 The "respond" action can be carried out whenever a given agent is idle, not just after they have replied to a given prompt
 

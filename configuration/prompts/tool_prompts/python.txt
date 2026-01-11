@@ -9,15 +9,24 @@ The Python tool lets you evaluate single expressions and execute Python 3 progra
 To use this tool, you have 2 modes : 
 - eval : simply put any Python expression on thez first line of the <in_data></in_data> section, like so and they will be computed and their result returned to you :
 
+<call>
+<tool>
+Python
+</tool>
 <action>
 eval
 </action>
 <in_data>
 print([i for i in range(1, 10, 2)])
 </in_data>
+</call>
 
 - run : run and get the output of any Python program put in the <in_data></in_data> section, here's an example : 
 
+<call>
+<tool>
+Python
+</tool>
 <action>
 run
 </action>
@@ -31,6 +40,7 @@ for i in range(100):
         sixes += 1
 print(f"In 100 10-sided dice rolls, we got the number 6 a total of {sixes} times")
 </in_data>
+</call>
 
 use the Python tool whenever you need to perform simple scripting to properly answer a prompt, 
 </ToolUse>
