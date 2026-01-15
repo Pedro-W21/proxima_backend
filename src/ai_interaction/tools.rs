@@ -535,9 +535,13 @@ pub async fn agent_tool(mode:String, input:String, agents_data:&AgentToolData, d
                                 }}) {
                                     Some(response) => match response {
                                         Node::Text(txt) => Ok((format!("{agent_name}\n{txt}\n"), Some(ProximaToolData::Agent(new_data)))),
-                                        _ => Err(ProximaToolCallError::AgentError(format!("Agent {} didn't give a properly formatted response", agent_name)))
+                                        Node::Element(elt) => match elt.children.get(0) {
+                                            Some(Node::Text(txt)) => Ok((format!("{agent_name}\n{txt}\n"), Some(ProximaToolData::Agent(new_data)))),
+                                            _ => Err(ProximaToolCallError::AgentError(format!("Agent {} didn't give a properly formatted response, no text in response tags", agent_name)))
+                                        },
+                                        _ => Err(ProximaToolCallError::AgentError(format!("Agent {} didn't give a properly formatted response, no text in response", agent_name))),
                                     },
-                                    None => Err(ProximaToolCallError::AgentError(format!("Agent {} didn't give a properly formatted response", agent_name)))
+                                    None => Err(ProximaToolCallError::AgentError(format!("Agent {} didn't give a properly formatted response, no \"response\" tag", agent_name)))
                                 },
                                 Err(_) => panic!("Should be parseable at this stage")
                             }
@@ -585,9 +589,13 @@ pub async fn agent_tool(mode:String, input:String, agents_data:&AgentToolData, d
                                 }}) {
                                     Some(response) => match response {
                                         Node::Text(txt) => Ok((format!("{agent_name}\n{txt}\n"), Some(ProximaToolData::Agent(new_data)))),
-                                        _ => Err(ProximaToolCallError::AgentError(format!("Agent {} didn't give a properly formatted response", agent_name)))
+                                        Node::Element(elt) => match elt.children.get(0) {
+                                            Some(Node::Text(txt)) => Ok((format!("{agent_name}\n{txt}\n"), Some(ProximaToolData::Agent(new_data)))),
+                                            _ => Err(ProximaToolCallError::AgentError(format!("Agent {} didn't give a properly formatted response, no text in response tags", agent_name)))
+                                        },
+                                        _ => Err(ProximaToolCallError::AgentError(format!("Agent {} didn't give a properly formatted response, no text in response", agent_name))),
                                     },
-                                    None => Err(ProximaToolCallError::AgentError(format!("Agent {} didn't give a properly formatted response", agent_name)))
+                                    None => Err(ProximaToolCallError::AgentError(format!("Agent {} didn't give a properly formatted response, no \"response\" tag", agent_name)))
                                 },
                                 Err(_) => panic!("Should be parseable at this stage")
                             }
