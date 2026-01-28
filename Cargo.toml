@@ -15,12 +15,16 @@ rand = "0.9.1"
 getrandom = { version = "0.3.3", features = ["wasm_js"] }
 whoami = "1.6.0"
 string_calculator = "0.4.0"
+sha3 = "0.10.8"
+rust-yaml = "0.0.5"
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 reqwest = { version = "0.11.27", features = ["json"] }
 duckduckgo = "0.2.0"
 tokio = "1.49.0"
 async-std = "1.13.2"
+searxng = "0.1.0"
+dom_smoothie = "0.15.0"
 
 [lib]
 path = "src/lib.rs"

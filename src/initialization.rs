@@ -1,4 +1,6 @@
-use std::{env, io, path::PathBuf};
+use std::{env, fs::File, io::{self, Read}, net::Ipv4Addr, path::PathBuf, str::FromStr};
+
+use rust_yaml::{Value, Yaml};
 
 pub fn ask_for_input(input_text: &str) -> String {
     // similaire à input() de python
@@ -14,16 +16,20 @@ pub fn ask_for_input(input_text: &str) -> String {
     input
 }
 
+#[derive(Clone, Debug)]
 pub struct InitializationData {
     pub username:String,
     pub password_hash:String,
     pub proxima_path:PathBuf,
     pub backend_url:String,
     pub port:u16,
+    pub python_server:Option<(Ipv4Addr, u16)>,
+    pub searxng_server:Option<String>,
+    pub tool_call_loop_limit:Option<u16>
 }
 
 pub fn initialize() -> InitializationData {
-    let mut init = InitializationData { username: String::new(), password_hash: String::new(), proxima_path: PathBuf::new(), backend_url: String::new(), port:8082 };
+    let mut init = InitializationData { username: String::new(), password_hash: String::new(), proxima_path: PathBuf::new(), backend_url: String::new(), port:8082, python_server:None, searxng_server:None, tool_call_loop_limit:None };
 
     let args:Vec<String> = env::args().collect();
 
@@ -47,6 +53,10 @@ pub fn initialize() -> InitializationData {
                 return init;
             }
         }
+    }
+    else if args.len() == 2 {
+        let config_path = PathBuf::from(args[1].trim());
+        return read_config(config_path).unwrap();
     }
 
     println!("Hello, welcome to Proxima ! This is currently highly experimental, do not use this on a public network or with private information.");
@@ -115,4 +125,102 @@ pub fn initialize() -> InitializationData {
     }
 
     init
+}
+
+
+
+pub fn read_config(file_path:PathBuf) -> Result<InitializationData, ()> {
+    let mut fs = File::open(file_path).map_err(|_| ())?;
+    let mut data = String::with_capacity(1024);
+    fs.read_to_string(&mut data).map_err(|_| ())?;
+
+    let yaml = Yaml::new();
+    let val = yaml.load_str(&data).map_err(|_| ())?;
+    let parsed = val.as_mapping().expect("YAML config isn't an index map");
+
+    let username:String;
+    let password:String;
+    let data_path:PathBuf;
+    let server_port:u16;
+    let ai_endpoint_url:String;
+    match parsed.get(&Value::String("server".to_string())) {
+        Some(server_conf) => {
+            username = server_conf.get(&Value::String("username".to_string())).ok_or(()).and_then(|opt| {
+                match opt.as_str() {
+                    Some(user) => Ok(user.to_string()),
+                    None => Err(())
+                }  
+            })?;
+            password = server_conf.get(&Value::String("password".to_string())).ok_or(()).and_then(|opt| {
+                match opt.as_str() {
+                    Some(pass) => Ok(pass.to_string()),
+                    None => Err(())
+                }  
+            })?;
+
+            ai_endpoint_url = server_conf.get(&Value::String("ai_endpoint_url".to_string())).ok_or(()).and_then(|opt| {
+                match opt.as_str() {
+                    Some(url) => Ok(url.to_string()),
+                    None => Err(())
+                }  
+            })?;
+
+            server_port = server_conf.get(&Value::String("port".to_string())).ok_or(()).and_then(|opt| {
+                match opt.as_int() {
+                    Some(port) => Ok(port as u16),
+                    None => Err(())
+                }  
+            })?;
+
+            data_path = server_conf.get(&Value::String("data_path".to_string())).ok_or(()).and_then(|opt| {
+                match opt.as_str() {
+                    Some(path) => Ok(PathBuf::from_str(path).unwrap().join(PathBuf::from("proxima_backend/"))),
+                    None => Err(())
+                }  
+            })?;
+        },
+        None => return Err(())
+    }
+
+    let mut python_server = None;
+    let mut searxng_server = None;
+    let mut tool_call_limit = None;
+
+    match parsed.get(&Value::String("tools".to_string())) {
+        Some(tool_conf) => {
+            tool_call_limit = tool_conf.get(&Value::String("max_tool_call_loops".to_string())).and_then(|opt| {
+                match opt.as_int() {
+                    Some(user) => Some(user as u16),
+                    None => None
+                }  
+            });
+            searxng_server = tool_conf.get(&Value::String("searxng_server".to_string())).and_then(|opt| {
+                match opt.as_str() {
+                    Some(user) => Some(user.to_string()),
+                    None => None
+                }  
+            });
+
+            python_server = tool_conf.get(&Value::String("python_server".to_string())).and_then(|opt| {
+                match opt.as_str() {
+                    Some(ip) => {
+                        let split = ip.split(':').collect::<Vec<&str>>();
+                        if split.len() == 2 {
+                            Some((Ipv4Addr::from_str(split[0]).unwrap(), split[1].parse().unwrap()))
+                        }
+                        else {
+                            None
+                        }
+                    },
+                    None => None
+                }  
+            });
+        },
+        None => ()
+    }
+
+
+    Ok(InitializationData { username, password_hash:password, proxima_path: data_path, backend_url: ai_endpoint_url, port:server_port, python_server, searxng_server, tool_call_loop_limit:tool_call_limit })
+
+
 }

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::database::configuration::{ChatConfiguration, ChatSetting, RepeatPosition};
+use crate::database::{configuration::{ChatConfiguration, ChatSetting, RepeatPosition}, media::MediaHash};
 
 pub type Prompt = ContextPart;
 pub type Response = ContextPart;
@@ -52,7 +52,7 @@ impl ContextPart {
         self.data.iter().map(|part| {
             match part {
                 ContextData::Text(text) => text.clone(),
-                ContextData::Image(img) => String::from("Alt text : This is an image. Not much more I can say since alt text is not implemented yet")
+                ContextData::Media(img) => String::from("Alt text : This is an image. Not much more I can say since alt text is not implemented yet")
             }
         }).collect()
     }
@@ -63,7 +63,7 @@ impl ContextPart {
             let first_elem = self.data.remove(0);
             match first_elem {
                 ContextData::Text(text) => current_string += &text,
-                ContextData::Image(image) => {
+                ContextData::Media(image) => {
                     new_data.push(ContextData::Text(current_string));
                     current_string = String::new();
                 },
@@ -88,7 +88,7 @@ pub enum ContextPosition {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ContextData {
     Text(String),
-    Image(usize),
+    Media(MediaHash),
 }
 
 impl ContextData {

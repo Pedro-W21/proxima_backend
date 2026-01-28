@@ -1,9 +1,11 @@
-use std::{fmt::Display, io::Stderr, sync::{mpmc::{self, Receiver, Sender}, Arc}};
+use std::{fmt::Display, io::Stderr, sync::{Arc, mpsc::RecvTimeoutError}};
 
-use actix_web::{cookie::time::{error::Format, Error}, web::{self, Bytes}, HttpResponse, Responder};
+use actix_web::{HttpResponse, Responder, cookie::time::{Error, error::Format}, rt::{spawn, time::sleep}, web::{self, Bytes}};
 use serde::{Deserialize, Serialize};
 
 use proxima_backend::{ai_interaction::endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}, database::{DatabaseItemID, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant}, proxima_handler::ProximaHandler};
+use tokio::sync::mpsc::{Receiver, Sender, channel};
+use tokio_stream::wrappers::ReceiverStream;
 
 use std::thread;
 use std::time::Duration;
@@ -41,13 +43,23 @@ pub async fn ai_post_handler(payload: web::Json<AIPayload>, data: web::Data<Arc<
         let (request, recv) = EndpointRequest::new(payload.request.clone());
         data.ai_endpoint.send_prio(request);
         if payload.request.is_stream() {
-            let (sender, receiver):(Sender<Result<Bytes, SpecialError>>, Receiver<Result<Bytes, SpecialError>>) = mpmc::channel();
-            thread::spawn(move || {
-                while let Ok(reply) = recv.recv() {
-                    sender.send(Ok(web::Bytes::from_owner(serde_json::to_string(&reply.variant).unwrap())));
+            let (sender, receiver):(Sender<Result<Bytes, SpecialError>>, Receiver<Result<Bytes, SpecialError>>) = channel(1000);
+            spawn(async move {
+                loop {
+                    println!("[streaming response to client] waiting on tokens");
+                    match recv.recv_timeout(Duration::from_millis(10)) {
+                        Ok(reply) => {
+                            sender.send(Ok(web::Bytes::from_owner(serde_json::to_string(&reply.variant).unwrap()))).await;
+                        },
+                        Err(error) => match error {
+                            RecvTimeoutError::Disconnected => break,
+                            _ => ()
+                        }
+                    }
+                    sleep(Duration::from_millis(10)).await;
                 }
             });
-            let json = iter(receiver);
+            let json = ReceiverStream::new(receiver);
             HttpResponse::Ok().content_type("application/json").streaming(json)
         }
         else {

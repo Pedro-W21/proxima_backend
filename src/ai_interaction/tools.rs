@@ -311,7 +311,7 @@ impl ProximaTool {
                                 match words[0].parse::<usize>() {
                                     Ok(value) => if !cfg!(target_family = "wasm") {
                                         words.remove(0);
-                                        match web_search_tool(value, words.into_iter().intersperse(&" ").collect::<Vec<&str>>().concat().trim().trim_matches('"').to_string()).await {
+                                        match searxng_web_search_tool(value, words.into_iter().intersperse(&" ").collect::<Vec<&str>>().concat().trim().trim_matches('"').to_string()).await {
                                             Ok(addition) => {
                                                 output += &format!("Query: {}\n#####\n", line.clone());
                                                 output += &addition;    
@@ -423,6 +423,31 @@ async fn web_search_tool(number_of_results:usize, query:String) -> Result<String
     Ok(output)
 }
 
+async fn searxng_web_search_tool(number_of_results:usize, query:String) -> Result<String, ProximaToolCallError> {
+    use searxng_client::{SearXNGClient, SearXNGConfig, SearchParams};
+    let mut output = String::new();
+    let client = SearXNGClient::new(SearXNGConfig { base_url: format!("http://localhost:8888/"), default_engine: None, default_category: None, language: Some("en".to_string()), safe_search: None });
+    let params = SearchParams {query, categories:None, engines:None, language:None, pageno:None, time_range:None, format:Some("json".to_string()), safe_search:None};
+    match client.search(params).await {
+        Ok(results) => 
+        if results.results.len() > 0 {
+            let mut i = 0;
+            for result in results.results {
+                output += &format!("Title: {}\nURL: {}\nSnippet: {}\n-----------------\n", result.title, result.url, result.content);
+                i += 1;
+                if i >= number_of_results {
+                    break;
+                }
+            }
+        }
+        else {
+            return Err(ProximaToolCallError::WebError(format!("There are no answers to your query, this is highly likely to be a result of exceeding search rate limits. Do not use the search tool again in this chat and say it to the user in order to set correct expectations for information quality.")))
+        },
+        Err(error) => return Err(ProximaToolCallError::WebError(format!("{}", error)))
+    }
+    Ok(output)
+}
+
 
 #[cfg(all(target_family = "wasm"))]
 async fn web_search_tool(number_of_results:usize, query:String) -> Result<String, ProximaToolCallError> {
@@ -432,12 +457,22 @@ async fn web_search_tool(number_of_results:usize, query:String) -> Result<String
 #[cfg(not(target_family = "wasm"))]
 async fn web_open_tool(lines:Vec<String>) -> Result<String, ProximaToolCallError> {
     use reqwest::Client;
+    use dom_smoothie::{Article, Config, Readability};
     let mut output = String::new();
     let client = Client::new();
     for url in lines {
         match client.get(url.clone()).header("User-Agent", "ProximaBotWebTool/0.1 (https://github.com/Pedro-W21/proxima_backend) reqwest/0.11.27").send().await {
             Ok(response) => match response.error_for_status() {
-                Ok(real_res) => output += &format!("{} : ```{}```\n", url, real_res.text().await.unwrap()),
+                Ok(real_res) => {
+                    let html = real_res.text().await.unwrap();
+                    let cfg = Config {
+                        max_elements_to_parse:10000,
+                        ..Default::default()
+                    };
+                    let mut readability = Readability::new(html, Some(&url), Some(cfg)).unwrap();
+                    let article = readability.parse().unwrap();
+                    output += &format!("{} : ```{}```\n", url, article.text_content)
+                },
                 Err(error) => return Err(ProximaToolCallError::WebError(format!("{}", error)))
             },
             Err(error) => return Err(ProximaToolCallError::WebError(format!("{}", error)))
@@ -571,7 +606,7 @@ pub async fn agent_tool(mode:String, input:String, agents_data:&AgentToolData, d
                         _ => panic!("Supposed to return a database item")
                     };
                     let mut new_context = chat.context.clone();
-                    new_context.add_part(ContextPart::new(vec![ContextData::Text(format!("<user_input>\n{}\n</user_input>", input_lines[1..].iter().map(|val| {format!("{}\n", val.clone())}).collect::<Vec<String>>().concat()))], ContextPosition::User));
+                    new_context.add_part(ContextPart::new(vec![ContextData::Text(format!("<user_prompt>\n{}\n</user_prompt>", input_lines[1..].iter().map(|val| {format!("{}\n", val.clone())}).collect::<Vec<String>>().concat()))], ContextPosition::User));
 
                     let (ai_req, recv) = EndpointRequest::new(EndpointRequestVariant::RespondToFullPrompt { whole_context: new_context, streaming: false, session_type: SessionType::Chat, chat_settings: chat.latest_used_config.clone() });
                     ai_sender.send_prio(ai_req);

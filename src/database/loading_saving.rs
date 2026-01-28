@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs::{DirBuilder, File}, io::{Read, Write}, path:
 
 use serde::{de::DeserializeOwned, Deserialize};
 
-use crate::database::{access_modes::AccessModes, chats::Chats, configuration::ChatConfigurations, devices::Devices, files::Files, folders::Folders, tags::Tags, user::PersonalInformation, ProxDatabase};
+use crate::database::{ProxDatabase, access_modes::AccessModes, chats::Chats, configuration::ChatConfigurations, devices::Devices, files::Files, folders::Folders, media::MediaStorage, tags::Tags, user::PersonalInformation};
 
 const PREMADE_FILES:LazyLock<HashMap<String, Vec<u8>>> = LazyLock::new(|| {
     HashMap::from(
@@ -18,6 +18,7 @@ const PREMADE_FILES:LazyLock<HashMap<String, Vec<u8>>> = LazyLock::new(|| {
             ("devices".to_string(), serde_json::to_string(&Devices::new()).unwrap().as_bytes().to_vec()),
             ("access_modes".to_string(), serde_json::to_string(&AccessModes::new()).unwrap().as_bytes().to_vec()),
             ("tags".to_string(), serde_json::to_string(&Tags::new()).unwrap().as_bytes().to_vec()),
+            ("media".to_string(), serde_json::to_string(&MediaStorage::new()).unwrap().as_bytes().to_vec()),
             ("user_data".to_string(), serde_json::to_string(&PersonalInformation::new(String::new(), String::new())).unwrap().as_bytes().to_vec()),
         ]
     )
@@ -38,6 +39,7 @@ const FOLDER_STRUCTURE:LazyLock<HashMap<String, PathBuf>> = LazyLock::new(|| {
             ("configurations".to_string(), PathBuf::from("personal_data/database/chat_configurations.json")),
             ("tags".to_string(), PathBuf::from("personal_data/database/tags.json")),
             ("chats".to_string(), PathBuf::from("personal_data/database/chats.json")),
+            ("media".to_string(), PathBuf::from("personal_data/database/media.json")),
             ("access_modes".to_string(), PathBuf::from("personal_data/database/access_modes.json")),
             ("devices".to_string(), PathBuf::from("personal_data/database/devices.json")),
 
@@ -140,5 +142,6 @@ pub fn load_from_disk(absolute_starting_folder:PathBuf) -> Result<ProxDatabase, 
     let chats = load_json_from_file::<Chats>(absolute_starting_folder.join(FOLDER_STRUCTURE.get("chats").unwrap()))?;
     let personal_information = load_json_from_file::<PersonalInformation>(absolute_starting_folder.join(FOLDER_STRUCTURE.get("user_data").unwrap()))?;
     let configs = load_json_from_file::<ChatConfigurations>(absolute_starting_folder.join(FOLDER_STRUCTURE.get("configurations").unwrap()))?;
-    Ok(ProxDatabase::from_parts(files, folders, chats, tags, personal_information, absolute_starting_folder, devices, access_modes, configs))
+    let media = load_json_from_file::<MediaStorage>(absolute_starting_folder.join(FOLDER_STRUCTURE.get("media").unwrap()))?;
+    Ok(ProxDatabase::from_parts(files, folders, chats, tags, personal_information, absolute_starting_folder, devices, access_modes, configs, media))
 }

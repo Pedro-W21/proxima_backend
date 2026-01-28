@@ -99,11 +99,25 @@ impl<B:BackendAPI> RequestHandler<B> {
                         println!("in settings response cycle");
                         let (id, receiver) = self.backend.send_new_prompt_streaming(whole_context.clone(), session_type, Some(settings.clone()));
                         println!("Sent prompt !!!");
-                        send_streaming_response(receiver, ContextPosition::AI, self.response_sender.clone(), rep_sender.clone());
+                        send_streaming_response(receiver, ContextPosition::AI, self.response_sender.clone(), rep_sender.clone()).await;
                         let mut response = self.backend.get_response_to_latest_prompt_for(id).await;
-                        response = rep_recv.recv().unwrap();
+                        loop {
+                            match rep_recv.recv_timeout(Duration::from_millis(20)) {
+                                Ok(resp) => {
+                                    response = resp;
+                                    break;
+                                },
+                                Err(error) => match error {
+                                    RecvTimeoutError::Disconnected => break,
+                                    RecvTimeoutError::Timeout => ()
+                                }
+                            }
+                            special_bad_wait(80).await;
+                        }
+                        response.concatenate_text();
                         match settings.get_tools() {
                             Some(tools) => {
+                                println!("Got tools, is tool calling response : {}, looks like nonstandard : {}", is_valid_tool_calling_response(&response), looks_like_nonstandard_final_response(&response));
                                 let mut new_tools = tools.clone();
                                 let mut i = 0;
                                 while !is_valid_tool_calling_response(&response) && !looks_like_nonstandard_final_response(&response) && i < 8 {
@@ -117,10 +131,23 @@ impl<B:BackendAPI> RequestHandler<B> {
                                     println!("in settings response cycle");
                                     let (id, receiver) = self.backend.send_new_prompt_streaming(whole_context.clone(), session_type, Some(settings.clone()));
 
-                                    send_streaming_response(receiver, ContextPosition::AI, self.response_sender.clone(), rep_sender.clone());
+                                    send_streaming_response(receiver, ContextPosition::AI, self.response_sender.clone(), rep_sender.clone()).await;
                                     println!("Sent prompt !!!");
                                     response = self.backend.get_response_to_latest_prompt_for(id).await;
-                                    response = rep_recv.recv().unwrap();
+                                    loop {
+                                        match rep_recv.recv_timeout(Duration::from_millis(20)) {
+                                            Ok(resp) => {
+                                                response = resp;
+                                                break;
+                                            },
+                                            Err(error) => match error {
+                                                RecvTimeoutError::Disconnected => break,
+                                                RecvTimeoutError::Timeout => ()
+                                            }
+                                        }
+                                        special_bad_wait(80).await;
+                                    }
+                                    response.concatenate_text();
                                     i += 1;
                                 }
 
@@ -130,12 +157,13 @@ impl<B:BackendAPI> RequestHandler<B> {
                                 }
                                 whole_context.add_part(response);
                                 println!("got response");
-                                self.response_sender.send(EndpointResponse { variant: EndpointResponseVariant::MultiTurnBlock(whole_context) }).unwrap();
+                                // self.response_sender.send(EndpointResponse { variant: EndpointResponseVariant::MultiTurnBlock(whole_context) }).unwrap();
                                 println!("Sent back response");
                             },
                             None => {
+                                println!("Got no tools");
                                 println!("got response");
-                                self.response_sender.send(EndpointResponse { variant: EndpointResponseVariant::Block(response) }).unwrap();
+                                // self.response_sender.send(EndpointResponse { variant: EndpointResponseVariant::Block(response) }).unwrap();
                                 println!("Sent back response");
                             },
                         }
@@ -144,7 +172,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                         println!("in no-setting response cycle");
                         let (id, receiver) = self.backend.send_new_prompt_streaming(whole_context, session_type, None);
                         println!("Preparing streaming response");
-                        send_streaming_response(receiver, ContextPosition::AI, self.response_sender.clone(), rep_sender.clone());
+                        send_streaming_response(receiver, ContextPosition::AI, self.response_sender.clone(), rep_sender.clone()).await;
                         println!("sending streaming response");
                         let response = self.backend.get_response_to_latest_prompt_for(id).await;
                         println!("Sent back response");
@@ -156,28 +184,49 @@ impl<B:BackendAPI> RequestHandler<B> {
     
 }
 
-fn send_streaming_response(receiver:Receiver<ContextData>, position:ContextPosition, sender:Sender<EndpointResponse>, total_sender:Sender<ContextPart>) {
-    thread::spawn(move || {
+#[cfg(not(target_family = "wasm"))]
+async fn send_streaming_response(receiver:Receiver<ContextData>, position:ContextPosition, sender:Sender<EndpointResponse>, total_sender:Sender<ContextPart>) {
+    tokio::spawn(async move  {
         let mut total = ContextPart::new(vec![], position.clone());
-        match receiver.recv() {
-            Ok(data) => {
-                total.add_data(data.clone());
-                sender.send(EndpointResponse { variant: EndpointResponseVariant::StartStream(data, position.clone()) });
-            },
-            Err(error) => ()
-        }
+
+        println!("[streaming response] Waiting on first token");
         loop {
-            match receiver.recv() {
+            match receiver.recv_timeout(Duration::from_millis(100)) {
+                Ok(data) => {
+                    total.add_data(data.clone());
+                    sender.send(EndpointResponse { variant: EndpointResponseVariant::StartStream(data, position.clone()) });
+                    break;
+                },
+                Err(error) => ()
+            }
+            special_bad_wait(50).await;
+        }
+        
+
+        println!("[streaming response] Got first token");
+        loop {
+            match receiver.recv_timeout(Duration::from_millis(10)) {
                 Ok(data) => {
                     total.add_data(data.clone());
                     sender.send(EndpointResponse { variant: EndpointResponseVariant::ContinueStream(data, position.clone()) });
+                    println!("[streaming response] Passing on token");
                 },
-                Err(error) => break
+                Err(error) => match error {
+                    RecvTimeoutError::Disconnected => break,
+                    _ => ()
+                }
             }
+            special_bad_wait(5).await;
         }
         total_sender.send(total);
     });
 }
+
+#[cfg(all(target_family = "wasm"))]
+async fn send_streaming_response(receiver:Receiver<ContextData>, position:ContextPosition, sender:Sender<EndpointResponse>, total_sender:Sender<ContextPart>) {
+    todo!("Support streaming responses on wasm")
+}
+
 
 fn send_context_part_streaming_blocking(part:ContextPart, sender:Sender<EndpointResponse>) {
     let mut first = true;
@@ -221,7 +270,7 @@ impl<B:BackendAPI + Send + 'static> AIEndpoint<B> {
                     _ => panic!("Database access error : {}", error)
                 }
             }
-            special_bad_wait().await;
+            special_bad_wait(900).await;
             loop {
                 if self.prio_requests.is_empty() {
                     if let Ok(request) = self.requests.try_recv() {
@@ -240,12 +289,12 @@ impl<B:BackendAPI + Send + 'static> AIEndpoint<B> {
 }
 
 #[cfg(not(target_family = "wasm"))]
-async fn special_bad_wait() {
-    async_std::task::sleep(Duration::from_millis(900)).await;
+async fn special_bad_wait(millis:u64) {
+    async_std::task::sleep(Duration::from_millis(millis)).await;
 }
 
 #[cfg(all(target_family = "wasm"))]
-async fn special_bad_wait() {
+async fn special_bad_wait(millis:u64) {
     panic!("This function is not supported on WASM")
 }
 

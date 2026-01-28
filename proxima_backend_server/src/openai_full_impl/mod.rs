@@ -1,5 +1,6 @@
-use std::{collections::HashMap, future::Future, pin::Pin, sync::{mpmc::{channel, Receiver, Sender}, Arc, RwLock}};
+use std::{collections::HashMap, future::Future, pin::Pin, sync::{Arc, RwLock, mpmc::{Receiver, Sender, channel}}, thread, time::Duration};
 
+use actix_web::rt::time::sleep;
 use futures::StreamExt;
 use openai_api_rs::v1::{api::OpenAIClient, chat_completion::{ChatCompletionChoice, ChatCompletionMessage, Content, MessageRole, chat_completion::{ChatCompletionRequest, ChatCompletionResponse}, chat_completion_stream::{ChatCompletionStreamRequest, ChatCompletionStreamResponse}}, common::Usage, error::APIError};
 use proxima_backend::database::{configuration::ChatConfiguration, context::{ContextData, ContextPart, ContextPosition, Prompt, Response, WholeContext}};
@@ -107,7 +108,9 @@ impl BackendAPI for OpenAIFullBackend {
             .build().unwrap();
         let sender_clone = self.task_sender.clone();
         let (sender_to_client, receiver_for_client) = channel();
-        let completion = Box::pin( (async move || {
+        tokio::spawn(async move {
+
+            sender_clone.send((Ok(ChatCompletionResponse { id: None, object: None, created: 100, model: String::from("AAAA"), choices: vec![], usage: Usage {prompt_tokens:1, completion_tokens:1, total_tokens:2}, system_fingerprint: None }), session_clones)).unwrap();
             let mut receiver =
             match config {
                 Some(config) => 
@@ -137,9 +140,11 @@ impl BackendAPI for OpenAIFullBackend {
                     },
                     None => break,
                 }
-            }    
-            sender_clone.send((Ok(ChatCompletionResponse { id: None, object: None, created: 100, model: String::from("AAAA"), choices: vec![], usage: Usage {prompt_tokens:1, completion_tokens:1, total_tokens:2}, system_fingerprint: None }), session_clones)).unwrap()
+            }
         
+        });
+        let completion = Box::pin( (async move || {
+            
         })());
         {
             self.tasks.write().unwrap().push(completion);
@@ -164,26 +169,33 @@ impl BackendAPI for OpenAIFullBackend {
                     future.await;
                 }
                 
-                {
-                    while let Ok((result, session_id)) = self.results_recv.recv() {
-                        let msg = result.unwrap().choices[0].clone().message;
-                        let completion = msg.content.clone();
+                loop {
+                    if let Ok((result, session_id)) = self.results_recv.recv_timeout(Duration::from_millis(10)) {
+                        let response = result.unwrap();
+                        let completion = if response.choices.len() > 0 {
+                            let msg = response.choices[0].clone().message;
+                            msg.content.clone()
+                        }
+                        else {
+                            Some(format!(" "))
+                        };
                         match self.sessions.get_mut(&session_id) {
-                            Some(session_data) => {
-                                match &mut session_data.session_data {
-                                    OpenAISessionData::ChatComp { messages, context_ver, waiting_on } => {
-                                        *waiting_on = completion.and_then(|message| {context_ver.add_part(Response::new(vec![ContextData::Text(message.clone())], ContextPosition::AI));Some(Response::new(vec![ContextData::Text(message)], ContextPosition::AI)) });
-                                        session_data.status = OpenAISessionStatus::Standby;
-                                        messages.push(ChatCompletionMessage { role: MessageRole::assistant, content: msg.content.map_or(Content::Text("".to_string()), |value| {Content::Text(value)}), name: None, tool_calls: None, tool_call_id: None });
-                                        if session_id == session {
-                                            break 'a;
+                                Some(session_data) => {
+                                    match &mut session_data.session_data {
+                                        OpenAISessionData::ChatComp { messages, context_ver, waiting_on } => {
+                                            *waiting_on = completion.clone().and_then(|message| {context_ver.add_part(Response::new(vec![ContextData::Text(message.clone())], ContextPosition::AI));Some(Response::new(vec![ContextData::Text(message)], ContextPosition::AI)) });
+                                            session_data.status = OpenAISessionStatus::Standby;
+                                            messages.push(ChatCompletionMessage { role: MessageRole::assistant, content: completion.map_or(Content::Text("".to_string()), |value| {Content::Text(value)}), name: None, tool_calls: None, tool_call_id: None });
+                                            if session_id == session {
+                                                break 'a;
+                                            }
                                         }
                                     }
                                 }
+                                None => ()
                             }
-                            None => ()
-                        }
                     }
+                    sleep(Duration::from_millis(90)).await;
                 }
         }
         

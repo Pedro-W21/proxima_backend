@@ -1,0 +1,18 @@
+server:
+  username: test
+  password: test
+  # this points to the folder that will contain the proxima data folder (this will be /path/to/data_folder/proxima_backend here)
+  data_path: /path/to/data_folder
+  # this is the default KoboldCpp OpenAI endpoint URL
+  ai_endpoint_url: http://localhost:5001/v1/
+  # The port on which the proxima server will listen
+  port: 8082
+
+# This category and its contents are all optional, but they must be defined for all tools to work (except max_tool_call_loops)
+tools:
+  # the max number of times the LLM can make and respond to tool calls before responding to the end user (this one is 8 by default)
+  max_tool_call_loops: 5
+  # The URL to the searxng instance you are using for the "Web" tool, must support the JSON request format and respond to all API calls
+  searxng_server: http://localhost:8888/
+  # The IP and port pointing to the "Python" tool server, must be within quotation marks because of an issue in the YAML parsing 
+  python_server: "127.0.0.1:4096"
