@@ -423,6 +423,7 @@ async fn web_search_tool(number_of_results:usize, query:String) -> Result<String
     Ok(output)
 }
 
+#[cfg(not(target_family = "wasm"))]
 async fn searxng_web_search_tool(number_of_results:usize, query:String) -> Result<String, ProximaToolCallError> {
     use searxng_client::{SearXNGClient, SearXNGConfig, SearchParams};
     let mut output = String::new();
@@ -447,7 +448,10 @@ async fn searxng_web_search_tool(number_of_results:usize, query:String) -> Resul
     }
     Ok(output)
 }
-
+#[cfg(all(target_family = "wasm"))]
+async fn web_search_tool(number_of_results:usize, query:String) -> Result<String, ProximaToolCallError> {
+    Err(ProximaToolCallError::WebError(format!("Running a web search tool call on a WASM platform, not supported")))
+}
 
 #[cfg(all(target_family = "wasm"))]
 async fn web_search_tool(number_of_results:usize, query:String) -> Result<String, ProximaToolCallError> {
