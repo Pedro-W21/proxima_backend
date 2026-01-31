@@ -7,7 +7,7 @@ Python
 <ToolUse>
 The Python tool lets you evaluate single expressions and execute Python 3 programs in an offline, contained environment and get results.
 To use this tool, you have 2 modes : 
-- eval : simply put any Python expression on thez first line of the <in_data></in_data> section, like so and they will be computed and their result returned to you :
+- eval : simply put any Python expression on the first line of the <in_data></in_data> section, like so and they will be computed and their result returned to you :
 
 <call>
 <tool>

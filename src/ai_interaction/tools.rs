@@ -1,6 +1,7 @@
 use std::{cmp::Ordering, collections::HashMap, io::{Read, Write}, net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream}, sync::{mpmc::Receiver, mpsc::RecvTimeoutError}, time::Duration};
 
 use html_parser::{Dom, Element, Node};
+use rand::{Rng, rng};
 use serde::{Deserialize, Serialize};
 
 use crate::{ai_interaction::{AiEndpointSender, endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}}, database::{DatabaseItem, DatabaseItemID, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, chats::{Chat, SessionType}, configuration::{ChatConfiguration, ChatSetting}, context::{ContextData, ContextPart, ContextPosition, WholeContext}}};
@@ -152,7 +153,8 @@ pub enum ProximaTool {
     Calculator,
     Web,
     Python,
-    Agent
+    Agent,
+    Rng,
 }
 
 impl ProximaTool {
@@ -162,7 +164,8 @@ impl ProximaTool {
             Self::Calculator => false,
             Self::Web => false,
             Self::Python => false,
-            Self::Agent => false
+            Self::Agent => false,
+            Self::Rng => false
         }
     }
     pub fn is_valid_action(&self, action:&String) -> bool {
@@ -186,6 +189,10 @@ impl ProximaTool {
             Self::Agent => match action.trim() {
                 "run" | "respond" => true,
                 _ => false
+            },
+            Self::Rng => match action.trim() {
+                "dice" | "range" => true,
+                _ => false,
             }
         }
     }
@@ -195,7 +202,8 @@ impl ProximaTool {
             Self::Calculator => "Computation of literal mathematical expressions".to_string(),
             Self::Python => "Execution of Python 3 expressions and programs".to_string(),
             Self::Web => "Web search and web page opening to gather precise information from the internet".to_string(),
-            Self::Agent => "Running and keeping tabs on autonomous AI agents".to_string()
+            Self::Agent => "Running and keeping tabs on autonomous AI agents".to_string(),
+            Self::Rng => "Random number generation".to_string(),
         }
     }
     pub fn try_from_string(string:String) -> Option<Self> {
@@ -205,6 +213,7 @@ impl ProximaTool {
             "Web" => Some(Self::Web),
             "Python" => Some(Self::Python),
             "Agent" => Some(Self::Agent),
+            "RNG" => Some(Self::Rng),
             _ => None
         }
     }
@@ -357,6 +366,11 @@ impl ProximaTool {
                 let (output_str, new_data) = agent_tool(action.to_string(), input, data.unwrap().get_agent_tool_data(), database_connection, ai_sender).await?;
                 Ok((generate_call_output("Agent".to_string(), action.to_string(), output_str), new_data))
             }
+            Self::Rng => {
+                let input_lines:Vec<String> = input.trim().lines().map(|line| {line.trim().to_string()}).collect();
+                let (output_str, new_data) = rng_tool(action.to_string(), input_lines)?;
+                Ok((generate_call_output("RNG".to_string(), action.to_string(), output_str), new_data))
+            }
         }
     }
     pub fn get_empty_data(&self) -> Option<ProximaToolData> {
@@ -373,7 +387,8 @@ impl ProximaTool {
                         allocatable_tools: vec![]
                     }
                 )
-            )
+            ),
+            Self::Rng => None,
         }
     }
     pub fn get_description_string(&self, data:Option<&ProximaToolData>) -> String {
@@ -388,7 +403,8 @@ impl ProximaTool {
                 base = base.replace("AGENT_TOOL_AVAILABLE_TOOLS_REPLACEME", &tool_data.allocatable_tools.iter().map(|tool| {format!("- {}: {}\n", tool.get_name(), tool.get_agent_tool_description())}).collect::<Vec<String>>().concat());
                 base = base.replace("AGENT_TOOL_AVAILABLE_MODELS_REPLACEME", "- default model");
                 base
-            }
+            },
+            Self::Rng => String::from(include_str!("../../configuration/prompts/tool_prompts/rng.txt")),
         }
     }
     pub fn get_name(&self) -> String {
@@ -397,7 +413,8 @@ impl ProximaTool {
             Self::LocalMemory => format!("Local memory"),
             Self::Web => format!("Web"),
             Self::Python => format!("Python"),
-            Self::Agent => format!("Agent")
+            Self::Agent => format!("Agent"),
+            Self::Rng => format!("RNG")
         }
     }
 }
@@ -488,6 +505,45 @@ async fn web_open_tool(lines:Vec<String>) -> Result<String, ProximaToolCallError
 #[cfg(all(target_family = "wasm"))]
 async fn web_open_tool(lines:Vec<String>) -> Result<String, ProximaToolCallError> {
     Err(ProximaToolCallError::WebError(format!("Running a web open tool call on a WASM platform, not supported")))
+}
+
+fn rng_tool(mode:String, lines:Vec<String>) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
+    let mut output = String::new();
+    let mut rng = rng();
+    match mode.trim() {
+        "dice" => for line in lines {
+            let parts = line.split_whitespace().collect::<Vec<&str>>();
+            if parts.len() >= 1 {
+                let dice_size = parts[0].parse::<u64>().map_err(|err| {ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: line.clone(), issue: format!("Dice size is unparseable as positive integer") })})?;
+                let dice_roll = rng.random_range(1..=dice_size);
+
+                let label = if parts.len() >= 2 {
+                    format!("{} ", parts[1..].iter().intersperse(&" ").collect::<Vec<&&str>>().into_iter().map(|item| {item.to_string()}).collect::<Vec<String>>().concat())
+                }
+                else {
+                    String::new()
+                };
+                output += &format!("{label}D{dice_size} = {dice_roll}\n");
+            }
+        },
+        "range" => for line in lines {
+            let parts = line.split_whitespace().collect::<Vec<&str>>();
+            if parts.len() == 3 {
+                let mut lower_bound = parts[1].parse::<f64>().map_err(|err| {ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: line.clone(), issue: format!("Lower bound is unparseable") })})?;
+                let mut higher_bound = parts[2].parse::<f64>().map_err(|err| {ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: line.clone(), issue: format!("Lower bound is unparseable") })})?;
+                let roll = match parts[0] {
+                    "int" => format!("{}", rng.random_range((lower_bound as i64)..=(higher_bound as i64))),
+                    "float" => format!("{}", rng.random_range(lower_bound..=higher_bound)),
+                    _ => return Err(ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: line.clone(), issue: format!("rolling for neither int or float, must be int or float") }))
+                };
+
+                output += &format!("{line} = {roll}\n");
+            }
+        }
+        _ => panic!("Should have a valid action by now")
+    }
+    
+    Ok((output, None))
 }
 
 fn read_proxima_python_toolcall_string(stream:&mut TcpStream) -> Result<String, ProximaToolCallError> {

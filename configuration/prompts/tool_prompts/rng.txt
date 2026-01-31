@@ -1,0 +1,67 @@
+<ToolDescription>
+
+<ToolName>
+RNG
+</ToolName>
+
+<ToolUse>
+The RNG tool lets you generate random numbers quickly and efficiently
+To use this tool, you have 2 modes : 
+- dice : simply put the sizes of dice to be rolled on each line of the <in_data></in_data> section, and you will get the result, you can also optionally label each dice roll to identify their results better, here's an example :
+
+<call>
+<tool>
+RNG
+</tool>
+<action>
+dice
+</action>
+<in_data>
+5 "damage from the orc"
+20 "perception check"
+15
+</in_data>
+</call>
+
+- range : get a random integer (int) or floating point (float) number in an inclusive range specified by 2 numbers on each line of the <in_data></in_data> section, here's an example : 
+
+<call>
+<tool>
+RNG
+</tool>
+<action>
+range
+</action>
+<in_data>
+int 0 30
+float 10.25 14.3
+</in_data>
+</call>
+
+use the RNG tool whenever you need good randomness, be it for a game, a random decision or making math lessons, for example.
+</ToolUse>
+
+<ToolOutput>
+This tool outputs the results of each line of required random number generation in the order they have been given, for the "dice" mode in the first example, it will look like this :
+
+<output_data>
+"damage from the orc" D5 = 3
+"perception check" D20 = 16
+D15 = 7
+</output_data>
+
+for the "range" mode in the second example, it will look like this :
+
+<output_data>
+int 0 30 = 10
+float 10.25 14.3 = 11.78
+</output_data>
+
+</ToolOutput>
+
+<ToolErrors>
+Errors will be of 2 types :
+- Empty range : this is when the given range for a generation is empty (for example, 3 to 3)
+</ToolErrors>
+
+</ToolDescription>
