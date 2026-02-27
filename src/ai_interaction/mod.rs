@@ -333,20 +333,7 @@ pub async fn handle_request<B:BackendAPI + Send + 'static>(db_sender:DatabaseSen
 
 #[cfg(all(target_family = "wasm"))]
 pub async fn handle_request<B:BackendAPI>(db_sender:DatabaseSender, backend_conn:<B as BackendAPI>::ConnData, request:EndpointRequest, self_sender:AiEndpointSender) {
-    match request.variant.clone() {
-        EndpointRequestVariant::Continue => (),
-        EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type, chat_settings} => {
-
-            let response = request.response_tunnel.clone();
-            let request = request.variant.clone();
-            if streaming {
-                RequestHandler::new(db_sender, request, response, B::new(backend_conn), streaming, self_sender).streaming_respond().await;
-            }
-            else {
-                RequestHandler::new(db_sender, request, response, B::new(backend_conn), streaming, self_sender).respond().await;
-            }
-        }
-    }
+    panic!("Not implemented in WASM")
 }
 
 pub async fn launch_ai_endpoint_thread<B:BackendAPI + Send + 'static>(conn_data:B::ConnData,database_sender:DatabaseSender, prio_send:Sender<EndpointRequest>, prio_rcv:Receiver<EndpointRequest>, normal_send:Sender<EndpointRequest>, normal_rcv:Receiver<EndpointRequest>, runtime_tool_data:RuntimeToolData) -> (AiEndpointSender, JoinHandle<impl Future<Output = ()>>) {
