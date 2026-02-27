@@ -222,6 +222,7 @@ impl ProximaTool {
             "Python" => Some(Self::Python),
             "Agent" => Some(Self::Agent),
             "RNG" => Some(Self::Rng),
+            "Memory" => Some(Self::Rng),
             _ => None
         }
     }
@@ -408,7 +409,7 @@ impl ProximaTool {
                 )
             ),
             Self::Rng => None,
-            Self::Memory => None,
+            Self::Memory => Some(ProximaToolData::Memory { access_mode_id: 0 }),
         }
     }
     pub fn get_description_string(&self, data:Option<&ProximaToolData>) -> String {
