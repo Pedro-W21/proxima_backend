@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tags::{Tag, TagID, Tags};
 use user::{PersonalInformation, UserData};
 
-use crate::{ai_interaction::create_prompt::{AgentPrompt, get_agent_prompt_context}, database::{configuration::{ChatConfigID, ChatConfiguration, ChatConfigurations}, context::WholeContext, loading_saving::{load_from_disk, save_to_disk}, media::{Media, MediaHash, MediaStorage}}};
+use crate::{ai_interaction::create_prompt::{AgentPrompt, get_agent_prompt_context}, database::{configuration::{ChatConfigID, ChatConfiguration, ChatConfigurations}, context::WholeContext, loading_saving::{load_from_disk, save_to_disk}, media::{Media, MediaHash, MediaStorage}, memories::{Memories, Memory, MemoryID, MemoryRequest}}};
 
 pub mod tags;
 pub mod folders;
@@ -26,6 +26,7 @@ pub mod devices;
 pub mod access_modes;
 pub mod configuration;
 pub mod media;
+pub mod memories;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProxDatabase {
@@ -38,7 +39,8 @@ pub struct ProxDatabase {
     pub devices:Devices,
     pub access_modes:AccessModes,
     pub configs:ChatConfigurations,
-    pub media:MediaStorage
+    pub media:MediaStorage,
+    pub memories:Memories
 }
 
 impl ProxDatabase {
@@ -53,19 +55,23 @@ impl ProxDatabase {
         access_modes:AccessModes,
         configs:ChatConfigurations,
         media:MediaStorage,
+        memories:Memories
     ) -> Self {
-        Self { files, folders, chats, tags, personal_info, database_folder, devices, access_modes, configs, media }
+        Self { files, folders, chats, tags, personal_info, database_folder, devices, access_modes, configs, media, memories }
     }
     pub fn new(pseudonym:String, password_hash:String, database_folder:PathBuf) -> Self {
         if create_or_repair_database_folder_structure(database_folder.clone()) {
-            load_from_disk(database_folder.clone()).unwrap()
+            let mut data = load_from_disk(database_folder.clone()).unwrap();
+            data.personal_info.user_data.pseudonym = pseudonym;
+            data.personal_info.user_data.password_hash = password_hash;
+            data
         }
         else {
-            Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder, chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new() }
+            Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder, chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new() }
         }
     }
     pub fn new_just_data(pseudonym:String, password_hash:String) -> ProxDatabase {
-        Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder:PathBuf::from("a/a/a/a/a/a/a/a"), chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new() }
+        Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder:PathBuf::from("a/a/a/a/a/a/a/a"), chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new() }
     }
     pub fn add_desc_and_tags(&mut self, desc_type:DescriptionTarget, desc:Description, tags:HashSet<TagID>) {
         match desc_type {
@@ -165,7 +171,7 @@ impl ProxDatabase {
         let id = tag.get_id();
         self.tags.get_tags_mut().insert(id, tag);
         for i in (id + 1)..self.tags.get_tags().len() {
-            self.tags.get_tags_mut()[i].set_id(i);
+            self.tags.get_tags_mut().get_mut(&i).unwrap().set_id(i);
         }
         
         for i in 0..self.chats.get_chats().len() {
@@ -391,8 +397,8 @@ impl ProxDatabase {
             },
             DatabaseItem::Tag(tag) => {
                 let id = tag.get_id();
-                if self.tags.get_tags_mut()[id].created_at == tag.created_at {
-                    self.tags.get_tags_mut()[id] = tag;
+                if self.tags.get_tags_mut().get(&id).unwrap().created_at == tag.created_at {
+                    self.tags.get_tags_mut().insert(id, tag);
                     true
                 }
                 else {
@@ -425,6 +431,17 @@ impl ProxDatabase {
                     self.media.add_media(data, media.tags, media.access_modes, media.file_name, self.database_folder.clone(), media.media_type);
                     false
                 }
+            },
+            DatabaseItem::Memory(memory, data) => {
+                let mem = self.memories.memories.get(&memory.id).unwrap();
+                if mem.add_date == memory.add_date {
+                    self.memories.update_memory(memory.id, data, self.database_folder.clone());
+                    true
+                }
+                else {
+                    self.memories.add_memory(data, memory.access_modes, memory.tags, self.database_folder.clone());
+                    false
+                }
             }
         }
     }
@@ -453,6 +470,9 @@ impl ProxDatabase {
             },
             DatabaseItem::Media(media, data) => {
                 self.media.add_media(data, media.tags, media.access_modes, media.file_name, self.database_folder.clone(), media.media_type);
+            },
+            DatabaseItem::Memory(memory, data) => {
+                self.memories.add_memory(data, memory.access_modes, memory.tags, self.database_folder.clone());
             }
             DatabaseItem::UserData(user_data) => {
                 self.personal_info.user_data = user_data;
@@ -461,7 +481,7 @@ impl ProxDatabase {
     }
     pub fn get_request(&self, id:DatabaseItemID) -> DatabaseReply {
         match id {
-            DatabaseItemID::Tag(tagid) => DatabaseReply {variant : DatabaseReplyVariant::ReturnedItem(DatabaseItem::Tag(self.tags.get_tags()[tagid].clone()))},
+            DatabaseItemID::Tag(tagid) => DatabaseReply {variant : DatabaseReplyVariant::ReturnedItem(DatabaseItem::Tag(self.tags.get_tags().get(&tagid).unwrap().clone()))},
             DatabaseItemID::AccessMode(modeid) => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::AccessMode(self.access_modes.get_modes()[modeid].clone()))},
             DatabaseItemID::Device(deviceid) => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Device(self.devices.get_devices()[deviceid].clone()))},
             DatabaseItemID::Chat(chatid) => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Chat(self.chats.get_chats().get(&chatid).unwrap().clone()))},
@@ -470,6 +490,7 @@ impl ProxDatabase {
             DatabaseItemID::ChatConfiguration(configid) => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::ChatConfig(self.configs.get_configs()[configid].clone()))},
             DatabaseItemID::UserData => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::UserData(self.personal_info.user_data.clone()))},
             DatabaseItemID::Media(mediaid) => {let (media, data) = self.media.get_media_with_data(&mediaid, self.database_folder.clone()).unwrap(); DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Media(media.clone(), data))}},
+            DatabaseItemID::Memory(memoryid) => {let (memory, data) = self.memories.get_memory_with_data(memoryid, self.database_folder.clone()).unwrap(); DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Memory(memory.clone(), data))}},
         }
     }
     pub fn update_request(&mut self, item:DatabaseItem) -> DatabaseReply {
@@ -482,7 +503,8 @@ impl ProxDatabase {
             DatabaseItem::File(file) => {let id = file.get_id(); *self.files.get_file_mut(id) = file; DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
             DatabaseItem::Folder(folder) => {let id = folder.get_id();*self.folders.get_folder_mut(id) = folder; DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
             DatabaseItem::ChatConfig(config) => {self.configs.update_config(config); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
-            DatabaseItem::Media(media, data) => {self.media.update_media(media, data, self.database_folder.clone()); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }}
+            DatabaseItem::Media(media, data) => {self.media.update_media(media, data, self.database_folder.clone()); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
+            DatabaseItem::Memory(memory, data) => {self.memories.update_memory(memory.id, data, self.database_folder.clone()); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
             DatabaseItem::UserData(user_data) => {self.personal_info.user_data = user_data; DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
         }  
     }
@@ -496,6 +518,7 @@ impl ProxDatabase {
             DatabaseItem::Folder(folder) => {let id = self.folders.add_folder_raw(folder); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Folder(id)) }, DatabaseItemID::Folder(id))},
             DatabaseItem::ChatConfig(config) => {let id = self.configs.add_config(config); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::ChatConfiguration(id)) }, DatabaseItemID::ChatConfiguration(id))},
             DatabaseItem::Media(media, data) => {let id = self.media.add_media(data, media.tags, media.access_modes, media.file_name, self.database_folder.clone(), media.media_type); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Media(id)) }, DatabaseItemID::Media(id))},
+            DatabaseItem::Memory(memory, data) => {let id = self.memories.add_memory(data, memory.access_modes, memory.tags, self.database_folder.clone()); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Memory(id)) }, DatabaseItemID::Memory(id))},
             DatabaseItem::UserData(user_data) => {self.personal_info.user_data = user_data; (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::UserData) }, DatabaseItemID::UserData)}
         }
     }
@@ -511,6 +534,7 @@ pub enum DatabaseItem {
     UserData(UserData),
     ChatConfig(ChatConfiguration),
     Media(Media, Vec<u8>),
+    Memory(Memory, String)
 }
 
 impl DatabaseItem {
@@ -524,7 +548,8 @@ impl DatabaseItem {
             Self::Tag(tag) => DatabaseItemID::Tag(tag.get_id()),
             Self::ChatConfig(config) => DatabaseItemID::ChatConfiguration(config.id),
             Self::UserData(user_data) => DatabaseItemID::UserData,
-            Self::Media(media, _) => DatabaseItemID::Media(media.hash)
+            Self::Media(media, _) => DatabaseItemID::Media(media.hash),
+            Self::Memory(memory, _) => DatabaseItemID::Memory(memory.id)
         }
     }
     
@@ -562,6 +587,10 @@ impl DatabaseItem {
                 DatabaseItemID::Media(id) => med.hash = id,
                 _ => panic!("wrong kind of ID")
             },
+            Self::Memory(memory, _) => match new_id {
+                DatabaseItemID::Memory(id) => memory.id = id,
+                _ => panic!("wrong kind of ID")
+            },
             Self::UserData(user_data) => ()
         }
     }
@@ -578,7 +607,8 @@ pub enum DatabaseItemID {
     AccessMode(AccessModeID),
     UserData,
     ChatConfiguration(ChatConfigID),
-    Media(MediaHash)
+    Media(MediaHash),
+    Memory(MemoryID)
 }
 
 impl Step for DatabaseItemID {
@@ -592,6 +622,7 @@ impl Step for DatabaseItemID {
             DatabaseItemID::Tag(id) => *id,
             DatabaseItemID::ChatConfiguration(id) => *id,
             DatabaseItemID::Media(media) => 1,
+            DatabaseItemID::Memory(id) => *id,
             DatabaseItemID::UserData => 1
         };
         let end_id = match end {
@@ -602,6 +633,7 @@ impl Step for DatabaseItemID {
             DatabaseItemID::Folder(id) => *id,
             DatabaseItemID::Tag(id) => *id,
             DatabaseItemID::ChatConfiguration(id) => *id,
+            DatabaseItemID::Memory(id) => *id,
             DatabaseItemID::Media(media) => 0,
             DatabaseItemID::UserData => 0
         };
@@ -621,6 +653,7 @@ impl Step for DatabaseItemID {
             DatabaseItemID::Device(id) => Some(DatabaseItemID::Device(id + 1)),
             DatabaseItemID::Tag(id) => Some(DatabaseItemID::Tag(id + 1)),
             DatabaseItemID::ChatConfiguration(id) => Some(DatabaseItemID::ChatConfiguration(id + 1)),
+            DatabaseItemID::Memory(id) => Some(DatabaseItemID::Memory(id + 1)),
             DatabaseItemID::UserData => None,
             DatabaseItemID::Media(med) => None
         }
@@ -634,6 +667,7 @@ impl Step for DatabaseItemID {
             DatabaseItemID::Device(id) => Some(DatabaseItemID::Device(id - 1)),
             DatabaseItemID::Tag(id) => Some(DatabaseItemID::Tag(id - 1)),
             DatabaseItemID::ChatConfiguration(id) => Some(DatabaseItemID::ChatConfiguration(id - 1)),
+            DatabaseItemID::Memory(id) => Some(DatabaseItemID::Memory(id - 1)),
             DatabaseItemID::UserData => None,
             DatabaseItemID::Media(med) => None
         }
@@ -653,10 +687,16 @@ pub enum DatabaseRequestVariant {
     Update(DatabaseItem),
     Info(DatabaseInfoRequest),
     Add(DatabaseItem),
+    ToolRequest(ToolRequest),
     NewAuthKey,
     VerifyAuthKey(String),
     GetAgentPrompt(AgentPrompt), // >:(
     Save
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub enum ToolRequest {
+    MemoryRequest(MemoryRequest)
 }
 
 pub struct DatabaseRequest {
@@ -690,6 +730,7 @@ pub enum DatabaseReplyVariant {
     RequestExecuted,
     AddedItem(DatabaseItemID),
     ReturnedItem(DatabaseItem),
+    ReturnedManyItems(Vec<DatabaseItem>),
     CorrectAuth,
     WrongAuth,
     NewAuth(String),
@@ -829,7 +870,7 @@ impl DatabaseHandler {
                     self.database.chats.get_last_chat().map(|item| {DatabaseItem::Chat(item.clone())}),
                     self.database.folders.get_last_folder().map(|item| {DatabaseItem::Folder(item.clone())}),
                     self.database.files.get_last_file().map(|item| {DatabaseItem::File(item.clone())}),
-                    self.database.tags.get_tags().last().map(|item| {DatabaseItem::Tag(item.clone())}),
+                    self.database.tags.get_last_tag().map(|item| {DatabaseItem::Tag(item.clone())}),
                     Some(DatabaseItem::UserData(self.database.personal_info.user_data.clone())),
 
                 ] }
@@ -869,6 +910,16 @@ impl DatabaseHandler {
 
         
     }
+
+    fn handle_tool_request(&mut self, request:ToolRequest, response_sender:Sender<DatabaseReply>) -> Result<(), SendError<DatabaseReply>> {
+        match request {
+            ToolRequest::MemoryRequest(memory_request) => {
+                let memories = self.database.memories.retrieve_data_from_ids(self.database.memories.retrieve_ids(memory_request), self.database.database_folder.clone());
+                response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedManyItems(memories.into_iter().map(|(memory, data)| {DatabaseItem::Memory(memory, data)}).collect()) })
+            }
+        }
+    }
+
     fn handle_request(&mut self, request:DatabaseRequest) -> Result<(), SendError<DatabaseReply>> {
         match request.variant {
             DatabaseRequestVariant::Get(id) => self.handle_get_request(id, request.response_sender),
@@ -879,7 +930,8 @@ impl DatabaseHandler {
             DatabaseRequestVariant::Info(info_request) => self.handle_info_request(info_request, request.response_sender),
             DatabaseRequestVariant::GetAgentPrompt(agent_prompt) => self.handle_agent_prompt(agent_prompt, request.response_sender),
             DatabaseRequestVariant::GetAll => self.handle_getall(request.response_sender),
-            DatabaseRequestVariant::Save => self.handle_save(request.response_sender)
+            DatabaseRequestVariant::Save => self.handle_save(request.response_sender),
+            DatabaseRequestVariant::ToolRequest(tool_request) => self.handle_tool_request(tool_request, request.response_sender)
 
         }
     }

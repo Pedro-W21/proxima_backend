@@ -70,7 +70,7 @@ impl BackendAPI for OpenAIFullBackend {
         let (send, recv) = channel();
         Self { api_key:connection_data.1, url:connection_data.0, model:connection_data.2, sessions:HashMap::with_capacity(16), latest_session_id:0, tasks:Arc::new(RwLock::new(Vec::new())), task_sender:send, results_recv:recv, total_tasks:0}
     }
-    fn send_new_prompt_streaming(&mut self, new_prompt:WholeContext, session_type:SessionType, config:Option<ChatConfiguration>) -> (SessionID, Receiver<ContextData>) {
+    fn send_new_prompt_streaming(&mut self, new_prompt:WholeContext, session_type:SessionType, config:Option<ChatConfiguration>) -> Result<(SessionID, Receiver<ContextData>), BackendError> {
         let new_session_id = self.latest_session_id;
         self.latest_session_id += 1;
         let session_id = SessionID { id: new_session_id, session_type };
@@ -105,7 +105,9 @@ impl BackendAPI for OpenAIFullBackend {
         let mut client = OpenAIClient::builder()
             .with_endpoint(self.url.clone())
             .with_api_key(self.api_key.clone())
-            .build().unwrap();
+            .build().map_err(|error| {
+                BackendError::BackendUnavailable
+            })?;
         let sender_clone = self.task_sender.clone();
         let (sender_to_client, receiver_for_client) = channel();
         tokio::spawn(async move {
@@ -151,7 +153,7 @@ impl BackendAPI for OpenAIFullBackend {
             self.total_tasks += 1;
         }
         self.sessions.insert(session_id, OpenAISession { session_data: OpenAISessionData::ChatComp { messages: messages, context_ver: new_prompt, waiting_on:None }, status: OpenAISessionStatus::Beginning });
-        (session_id, receiver_for_client)
+        Ok((session_id, receiver_for_client))
     }
     fn new_empty() -> Self {
         let (send, recv) = channel();
@@ -258,71 +260,7 @@ impl BackendAPI for OpenAIFullBackend {
             None => panic!("This session should exist ! {:?}", session),
         }
     }
-    fn add_to_session(&mut self, new_prompt:Prompt, session:SessionID) -> Result<(), BackendError> {
-        match self.sessions.get_mut(&session) {
-            Some(session_data) => {
-                if session_data.status.ready() {
-                    match &mut session_data.session_data {
-                        OpenAISessionData::ChatComp { messages, context_ver, waiting_on } => {
-                            context_ver.add_part(new_prompt.clone());
-                            *waiting_on = None;
-                            session_data.status = OpenAISessionStatus::Waiting;
-                            // Only supports text for now
-                            let mut final_content = String::new();
-                            for data in new_prompt.get_data() {
-                                match data {
-                                    ContextData::Text(text) => final_content.push_str(text.as_str()),
-                                    _ => panic!("Not implemented")
-                                }
-                            }
-                            match new_prompt.get_position() {
-                                ContextPosition::User => {
-                                    messages.push(ChatCompletionMessage { role: MessageRole::user, content: Content::Text(final_content), name:None, tool_calls:None, tool_call_id:None });
-                                },
-                                ContextPosition::System => {
-                                    messages.push(ChatCompletionMessage { role: MessageRole::system, content: Content::Text(final_content), name:None, tool_calls:None, tool_call_id:None });
-                                },
-                                ContextPosition::AI => {
-                                    messages.push(ChatCompletionMessage { role: MessageRole::assistant, content: Content::Text(final_content), name:None, tool_calls:None, tool_call_id:None });
-                                },
-                                ContextPosition::Total | ContextPosition::Tool => {
-                                    messages.push(ChatCompletionMessage { role: MessageRole::tool, content: Content::Text(final_content), name:None, tool_calls:None, tool_call_id:None });
-                                }
-                            }
-                            let messages_clones = messages.clone();
-                            let session_clones = session.clone();
-                            let model_clone = self.model.clone();
-                            let mut client = OpenAIClient::builder()
-                                .with_endpoint(self.url.clone())
-                                .with_api_key(self.api_key.clone())
-                                .build().unwrap();
-
-                            let sender_clone = self.task_sender.clone();
-                            let completion = Box::pin( (async move || {
-
-                                let request = ChatCompletionRequest::new(model_clone, messages_clones);
-                                sender_clone.send((client.chat_completion(request).await, session_clones)).unwrap()
-                            })());
-                            self.tasks.write().unwrap().push(completion);
-                        }
-                    }
-                    Ok(())
-                }
-                else {
-                    Err(BackendError::SessionBusy(session))
-                }
-                
-            },
-            None => Err(BackendError::SessionMissing(session))
-        }
-    }
-    fn get_whole_current_context_for(&self, session:SessionID) -> Result<WholeContext, BackendError> {
-        match self.sessions.get(&session) {
-            Some(sess) => Ok(sess.session_data.get_context()),
-            None => Err(BackendError::SessionMissing(session))
-        }
-    }
-    fn send_new_prompt(&mut self, new_prompt:WholeContext, session_type:SessionType, config:Option<ChatConfiguration>) -> SessionID {
+    fn send_new_prompt(&mut self, new_prompt:WholeContext, session_type:SessionType, config:Option<ChatConfiguration>) -> Result<SessionID, BackendError> {
         let new_session_id = self.latest_session_id;
         self.latest_session_id += 1;
         let session_id = SessionID { id: new_session_id, session_type };
@@ -357,7 +295,9 @@ impl BackendAPI for OpenAIFullBackend {
         let mut client = OpenAIClient::builder()
             .with_endpoint(self.url.clone())
             .with_api_key(self.api_key.clone())
-            .build().unwrap();
+            .build().map_err(|error| {
+                BackendError::BackendUnavailable
+            })?;
         let sender_clone = self.task_sender.clone();
         let completion = Box::pin( (async move || {sender_clone.send((
             match config {
@@ -379,7 +319,7 @@ impl BackendAPI for OpenAIFullBackend {
             self.total_tasks += 1;
         }
         self.sessions.insert(session_id, OpenAISession { session_data: OpenAISessionData::ChatComp { messages: messages, context_ver: new_prompt, waiting_on:None }, status: OpenAISessionStatus::Beginning });
-        session_id
+        Ok(session_id)
     }
 }
 

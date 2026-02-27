@@ -1,0 +1,86 @@
+<ToolDescription>
+
+<ToolName>
+Memory
+</ToolName>
+
+<ToolUse>
+The Memory tool lets you store persistent memories that can be retrieved later
+To use this tool, you have 2 modes : 
+- record : put the memory you want to record within the <in_data></in_data> tags, like this :
+
+<call>
+<tool>
+Memory
+</tool>
+<action>
+record
+</action>
+<in_data>
+I learned that the user's favorite color is blue.
+I also learned that the user's second favorite color is cyan.
+</in_data>
+</call>
+
+the "record" mode will automatically add a timestamp to memories for future retrieval
+
+- retrieve : retrieve memories recorded between certain timestamps with different formats in the first line of the <in_data></in_data> section, 2 formats are available :
+    - last X {days/weeks/months/years} : this will retrieve memories recorded in the specified time to the current chat time, this is good for quickly gathering large amounts of memories to look back on for general information
+    - from:YYYY-MM-DD to:YYYY-MM-DD : this will retrieve memories recorded between the 2 specified dates (inclusively), this is best for finding specific memories when you have more details on their likely dates
+        - note : for that second format, you can also use "start" for the "from" to start from the date of the earliest memory recorded if you need to search through very old memories
+
+a call of the "retrieve" mode may look like this with the first format :
+
+<call>
+<tool>
+Memory
+</tool>
+<action>
+retrieve
+</action>
+<in_data>
+last 3 weeks
+</in_data>
+</call>
+
+and with the second format, the <in_data></in_data> section may look like this instead (dates chosen randomly for demonstration purposes) :
+<in_data>
+from:2024-05-08 to:2025-03-17
+</in_data>
+
+or even :
+<in_data>
+from:start to:2025-09-28
+</in_data>
+
+</ToolUse>
+
+<ToolOutput>
+This tool outputs the date of recording in the "record" mode in the YYYY/MM/DD format, like this :
+
+<output_data>
+Memory successfully recorded on 2026-02-20
+</output_data>
+
+for the "retrieve" mode in the second example, all retrieved memories will be provided with their timestamp, like this :
+
+<output_data>
+Date: 2024-11-21
+{contents of this memory}
+----
+Date: 2025-01-15
+{contents of this memory}
+----
+</output_data>
+
+if no data is found within the provided search period, you will be notified
+
+</ToolOutput>
+
+<ToolErrors>
+There will be 2 types of errors :
+- Unreachable Database : this will happen when the database can't be reached for either mode's function
+- Wrong Format : this will happen when the provided search terms for the "retrieve" mode are wrongly formatted
+</ToolErrors>
+
+</ToolDescription>

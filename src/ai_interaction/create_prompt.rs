@@ -64,7 +64,7 @@ pub fn create_desc_prompt(database:&ProxDatabase, desc_target:DescriptionTarget,
         }
     };
     let existing_tags = {
-        let all_tags = database.tags.get_tags().iter().enumerate();
+        let all_tags = database.tags.get_tags().iter();
         let mut list_elements = String::new();
         let access_mode_tags = database.access_modes.get_modes()[access_mode].get_tags();
         for (i, tag) in all_tags {
@@ -94,7 +94,7 @@ pub fn create_tag_prompt(database:&ProxDatabase, tagging_target:WholeContext, ac
     let system_prompt = format!("system_prompt: \"{}\",", tagging_target.get_whole_system_prompt().concatenate_into_single_part().data_to_text().concat());
     let chat_data = format!("chat_data: \"{}\",", tagging_target.get_everything_but_system_prompt().concatenate_into_single_part().data_to_text().concat());
     let existing_tags = {
-        let all_tags = database.tags.get_tags().iter().enumerate();
+        let all_tags = database.tags.get_tags().iter();
         let mut list_elements = String::new();
         let access_mode_tags = database.access_modes.get_modes()[access_mode].get_tags();
         for (i, tag) in all_tags {

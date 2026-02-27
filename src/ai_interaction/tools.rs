@@ -1,10 +1,11 @@
-use std::{cmp::Ordering, collections::HashMap, io::{Read, Write}, net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream}, sync::{mpmc::Receiver, mpsc::RecvTimeoutError}, time::Duration};
+use std::{cmp::Ordering, collections::{HashMap, HashSet}, io::{Read, Write}, net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream}, str::FromStr, sync::{mpmc::Receiver, mpsc::RecvTimeoutError}, time::Duration};
 
+use chrono::{Date, DateTime, Days, Months, NaiveDate, NaiveTime, Utc};
 use html_parser::{Dom, Element, Node};
 use rand::{Rng, rng};
 use serde::{Deserialize, Serialize};
 
-use crate::{ai_interaction::{AiEndpointSender, endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}}, database::{DatabaseItem, DatabaseItemID, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, chats::{Chat, SessionType}, configuration::{ChatConfiguration, ChatSetting}, context::{ContextData, ContextPart, ContextPosition, WholeContext}}};
+use crate::{ai_interaction::{AiEndpointSender, endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}}, database::{DatabaseItem, DatabaseItemID, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, ToolRequest, access_modes::AccessModeID, chats::{Chat, SessionType}, configuration::{ChatConfiguration, ChatSetting}, context::{ContextData, ContextPart, ContextPosition, WholeContext}, memories::{Memory, MemoryRequest}}};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Tools {
@@ -67,7 +68,7 @@ impl Tools {
         base += &String::from("\n</ToolUse>");
         ContextPart::new(vec![ContextData::Text(base)], ContextPosition::System)
     }
-    pub async fn call(&self, call_element:Element, database_connection:DatabaseSender, ai_sender:AiEndpointSender) -> Result<(ContextData, Self), ContextPart> {
+    pub async fn call(&self, call_element:Element, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData) -> Result<(ContextData, Self), ContextPart> {
         dbg!(call_element.clone());
         if call_element.children.len() == 3 {
             let mut tool_name = String::new();
@@ -105,7 +106,7 @@ impl Tools {
                         },
                         _ => return Err(ProximaToolCallError::Parsing(ToolParsingError::NotAnElement).generate_error_output(tool_name, action))
                     }
-                    return tool.respond_to(action.clone(), inputs, self.tool_data.get(&tool), database_connection, ai_sender).await.map(|(context, new_data)| {(context, 
+                    return tool.respond_to(action.clone(), inputs, self.tool_data.get(&tool), database_connection, ai_sender, runtime_tool_data).await.map(|(context, new_data)| {(context, 
                     match new_data {
                         Some(new_data) => {
                             let mut new_self = self.clone();
@@ -155,6 +156,7 @@ pub enum ProximaTool {
     Python,
     Agent,
     Rng,
+    Memory,
 }
 
 impl ProximaTool {
@@ -165,7 +167,8 @@ impl ProximaTool {
             Self::Web => false,
             Self::Python => false,
             Self::Agent => false,
-            Self::Rng => false
+            Self::Rng => false,
+            Self::Memory => false,
         }
     }
     pub fn is_valid_action(&self, action:&String) -> bool {
@@ -193,6 +196,10 @@ impl ProximaTool {
             Self::Rng => match action.trim() {
                 "dice" | "range" => true,
                 _ => false,
+            },
+            Self::Memory => match action.trim() {
+                "retrieve" | "record" => true,
+                _ => false,
             }
         }
     }
@@ -204,6 +211,7 @@ impl ProximaTool {
             Self::Web => "Web search and web page opening to gather precise information from the internet".to_string(),
             Self::Agent => "Running and keeping tabs on autonomous AI agents".to_string(),
             Self::Rng => "Random number generation".to_string(),
+            Self::Memory => "Long term, cross-session dated memory storage and retrieval".to_string(),
         }
     }
     pub fn try_from_string(string:String) -> Option<Self> {
@@ -217,7 +225,7 @@ impl ProximaTool {
             _ => None
         }
     }
-    pub async fn respond_to(&self, action:String, input:String, data:Option<&ProximaToolData>, database_connection:DatabaseSender, ai_sender:AiEndpointSender) -> Result<(ContextData, Option<ProximaToolData>), ProximaToolCallError> {
+    pub async fn respond_to(&self, action:String, input:String, data:Option<&ProximaToolData>, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData) -> Result<(ContextData, Option<ProximaToolData>), ProximaToolCallError> {
         match self {
             Self::LocalMemory => {
                 let mut new_data = data.unwrap().get_local_mem_data();
@@ -311,7 +319,7 @@ impl ProximaTool {
 
                 let input_lines:Vec<String> = input.trim().lines().map(|line| {line.trim().to_string()}).collect();
                 match action.trim() {
-                    "search" => if input_lines.len() >= 1 {
+                    "search" => if input_lines.len() >= 1 && let Some(url) = &runtime_tool_data.searxng_url {
                         let mut output = String::new();
                         for line in input_lines {
                             let mut words:Vec<&str> = line.split_whitespace().collect();
@@ -320,7 +328,7 @@ impl ProximaTool {
                                 match words[0].parse::<usize>() {
                                     Ok(value) => if !cfg!(target_family = "wasm") {
                                         words.remove(0);
-                                        match searxng_web_search_tool(value, words.into_iter().intersperse(&" ").collect::<Vec<&str>>().concat().trim().trim_matches('"').to_string()).await {
+                                        match searxng_web_search_tool(value, words.into_iter().intersperse(&" ").collect::<Vec<&str>>().concat().trim().trim_matches('"').to_string(), url.clone()).await {
                                             Ok(addition) => {
                                                 output += &format!("Query: {}\n#####\n", line.clone());
                                                 output += &addition;    
@@ -336,6 +344,9 @@ impl ProximaTool {
                             }
                         }
                         Ok((generate_call_output("Web".to_string(), "search".to_string(), output), None))
+                    }
+                    else if let None = &runtime_tool_data.searxng_url {
+                        Err(ProximaToolCallError::Network(format!("No web search URL configured, ask an administrator to add one")))
                     }
                     else {
                         Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 1, found: 0, remarks: format!("You must provide at least 1 query to search") }))
@@ -358,18 +369,26 @@ impl ProximaTool {
                 }
             },
             Self::Python => {
-
-                let output_str = python_tool(action.to_string(), input, SocketAddr::V4((SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 4096))))?;
-                Ok((generate_call_output("Python".to_string(), action.to_string(), output_str), None))
+                if let Some((ip, port)) = runtime_tool_data.python_server {
+                    let output_str = python_tool(action.to_string(), input, SocketAddr::V4((SocketAddrV4::new(ip, port))))?;
+                    Ok((generate_call_output("Python".to_string(), action.to_string(), output_str), None))
+                }
+                else {
+                    Err(ProximaToolCallError::Network(format!("No python server URL specified, ask an administrator to add one")))
+                }
             },
             Self::Agent => {
                 let (output_str, new_data) = agent_tool(action.to_string(), input, data.unwrap().get_agent_tool_data(), database_connection, ai_sender).await?;
                 Ok((generate_call_output("Agent".to_string(), action.to_string(), output_str), new_data))
-            }
+            },
             Self::Rng => {
                 let input_lines:Vec<String> = input.trim().lines().map(|line| {line.trim().to_string()}).collect();
                 let (output_str, new_data) = rng_tool(action.to_string(), input_lines)?;
                 Ok((generate_call_output("RNG".to_string(), action.to_string(), output_str), new_data))
+            },
+            Self::Memory => {
+                let (output_str, new_data) = memory_tool(action.to_string(), input, database_connection, data.unwrap().get_memory_am_id()).await?;
+                Ok((generate_call_output("Memory".to_string(), action.to_string(), output_str), new_data))
             }
         }
     }
@@ -389,6 +408,7 @@ impl ProximaTool {
                 )
             ),
             Self::Rng => None,
+            Self::Memory => None,
         }
     }
     pub fn get_description_string(&self, data:Option<&ProximaToolData>) -> String {
@@ -405,6 +425,7 @@ impl ProximaTool {
                 base
             },
             Self::Rng => String::from(include_str!("../../configuration/prompts/tool_prompts/rng.txt")),
+            Self::Memory => String::from(include_str!("../../configuration/prompts/tool_prompts/memory.txt")),
         }
     }
     pub fn get_name(&self) -> String {
@@ -414,7 +435,8 @@ impl ProximaTool {
             Self::Web => format!("Web"),
             Self::Python => format!("Python"),
             Self::Agent => format!("Agent"),
-            Self::Rng => format!("RNG")
+            Self::Rng => format!("RNG"),
+            Self::Memory => format!("Memory")
         }
     }
 }
@@ -441,10 +463,10 @@ async fn web_search_tool(number_of_results:usize, query:String) -> Result<String
 }
 
 #[cfg(not(target_family = "wasm"))]
-async fn searxng_web_search_tool(number_of_results:usize, query:String) -> Result<String, ProximaToolCallError> {
+async fn searxng_web_search_tool(number_of_results:usize, query:String, base_url:String) -> Result<String, ProximaToolCallError> {
     use searxng_client::{SearXNGClient, SearXNGConfig, SearchParams};
     let mut output = String::new();
-    let client = SearXNGClient::new(SearXNGConfig { base_url: format!("http://localhost:8888/"), default_engine: None, default_category: None, language: Some("en".to_string()), safe_search: None });
+    let client = SearXNGClient::new(SearXNGConfig { base_url, default_engine: None, default_category: None, language: Some("en".to_string()), safe_search: None });
     let params = SearchParams {query, categories:None, engines:None, language:None, pageno:None, time_range:None, format:Some("json".to_string()), safe_search:None};
     match client.search(params).await {
         Ok(results) => 
@@ -613,7 +635,7 @@ pub async fn agent_tool(mode:String, input:String, agents_data:&AgentToolData, d
                             let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Add(DatabaseItem::Chat(chat)), None);
 
                             println!("[Agent] Created database request");
-                            database_connection.send_normal(db_req);
+                            database_connection.send_prio(db_req);
                             
                             println!("[Agent] Sent database request");
                             match bad_async_recv(db_recv).await.variant {
@@ -641,6 +663,7 @@ pub async fn agent_tool(mode:String, input:String, agents_data:&AgentToolData, d
                                 Err(_) => panic!("Should be parseable at this stage")
                             }
                         },
+                        EndpointResponseVariant::EndpointError(error) => return Err(ProximaToolCallError::Network(format!("AI endpoint not available"))),
                         _ => panic!("Should return a multi-turn block")
                     }
                     // TODO : 
@@ -675,7 +698,7 @@ pub async fn agent_tool(mode:String, input:String, agents_data:&AgentToolData, d
                             let last_part = whole_context.get_parts().last().unwrap().clone();
                             chat.context = whole_context;
                             let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Update(DatabaseItem::Chat(chat)), None);
-                            database_connection.send_normal(db_req);
+                            database_connection.send_prio(db_req);
                             bad_async_recv(db_recv).await;
                             match Dom::parse(&last_part.data_to_text().concat()) {
                                 Ok(parsed) => match parsed.children.iter().find(|child| {match child {
@@ -695,6 +718,7 @@ pub async fn agent_tool(mode:String, input:String, agents_data:&AgentToolData, d
                                 Err(_) => panic!("Should be parseable at this stage")
                             }
                         },
+                        EndpointResponseVariant::EndpointError(error) => return Err(ProximaToolCallError::Network(format!("AI endpoint not available"))),
                         _ => panic!("Should return a multi-turn block")
                     }
                 }
@@ -709,6 +733,119 @@ pub async fn agent_tool(mode:String, input:String, agents_data:&AgentToolData, d
         Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 2, found: 1, remarks:String::from("") }))
     }
     
+}
+
+
+fn parse_retrieval_date(input:String) -> Result<(DateTime<Utc>, DateTime<Utc>), ProximaToolCallError> {
+    let mut split = input.split_whitespace().collect::<Vec<&str>>();
+    if split.len() >= 2 {
+        if split[0].contains("last") {
+            let current_time = Utc::now();
+            if split.len() >= 3 {
+                if let Ok(x) = split[1].parse::<u64>() {
+                    match split[2] {
+                        "day" | "days" => Ok((current_time.checked_sub_days(Days::new(x)).unwrap(), current_time)),
+                        "week" | "weeks" => Ok((current_time.checked_sub_days(Days::new(x*7)).unwrap(), current_time)),
+                        "month" | "months" => Ok((current_time.checked_sub_months(Months::new(x as u32)).unwrap(), current_time)),
+                        "year" | "years" => Ok((current_time.checked_sub_months(Months::new((x * 12) as u32)).unwrap(), current_time)),
+                        _ => Err(ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: split[2].to_string(), issue: format!("You can only get the last days, weeks, months or years") }))
+                    }
+                }
+                else {
+                    Err(ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: split[1].to_string(), issue: format!("In the last X Y format, X should be a positive integer") }))
+                }
+            }
+            else {
+                Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 3, found: split.len(), remarks: String::new() }))
+            }
+        }
+        else if split[0].contains("from:") {
+            let from_split = split[0].split(':').collect::<Vec<&str>>();
+            if from_split.len() == 2 {
+                let start_time:DateTime<Utc>;
+                if from_split[1] == "start" {
+                    start_time = Utc::now().checked_sub_months(Months::new(120000)).unwrap();
+                }
+                else {
+                    match NaiveDate::from_str(from_split[1]) {
+                        Ok(from) => start_time = from.and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap()).and_utc(),
+                        Err(error) => return Err(ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: split[0].to_string(), issue: format!("Should be in the from:YYYY-MM-DD format, error {error}") }))
+                    }
+                }
+                if split[1].contains("to:") {
+                    let to_split = split[1].split(':').collect::<Vec<&str>>();
+                    if to_split.len() == 2 {
+                        match NaiveDate::from_str(to_split[1]) {
+                            Ok(to) => Ok((start_time, to.and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap()).and_utc())),
+                            Err(error) => Err(ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: split[0].to_string(), issue: format!("Should be in the to:YYYY-MM-DD format, error {error}") }))
+                        }
+                    }
+                    else {
+                        Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 2, found: from_split.len(), remarks: String::new() }))
+                    }
+                }
+                else {
+                    Err(ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: split[0].to_string(), issue: format!("Should be in the to:YYYY-MM-DD format") }))
+                }
+            }
+            else {
+                Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 2, found: from_split.len(), remarks: String::new() }))
+            }
+        }
+        else {
+            Err(ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: split[0].to_string(), issue: format!("Should be in the from:YYYY-MM-DD format") }))
+        }
+    }
+    else {
+        Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 2, found: split.len(), remarks: String::new() }))
+    }
+}
+
+async fn memory_tool(mode:String, input:String, database_connection:DatabaseSender, access_mode_id:AccessModeID) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
+    match mode.trim() {
+        "retrieve" => {
+            let (from, to) = parse_retrieval_date(input)?;
+            let request = MemoryRequest::new(from, to, HashSet::from([access_mode_id]), None);
+
+            let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::ToolRequest(ToolRequest::MemoryRequest(request)), None);
+            database_connection.send_prio(db_req);
+
+            match bad_async_recv(db_recv).await.variant {
+                DatabaseReplyVariant::ReturnedManyItems(memories) => {
+                    let mut output = String::with_capacity(1024);
+                    if memories.len() > 0 {
+                        for memory in memories {
+                            match memory {
+                                DatabaseItem::Memory(memory, data) => {
+                                    output += &format!("{}\n{data}\n----\n", memory.add_date);
+                                },
+                                _ => ()
+                            }
+                        }
+                    }
+                    else {
+                        output = format!("No memories were found for this search query");
+                    }
+                    Ok((output, Some(ProximaToolData::Memory { access_mode_id })))   
+                },
+                _ => Err(ProximaToolCallError::Network(format!("Database couldn't be reached to record the memory")))
+            }
+        },
+        "record" => {
+            let memory = Memory::new(HashSet::from([access_mode_id]), HashSet::new());
+            let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Add(DatabaseItem::Memory(memory, input)), None);
+            database_connection.send_prio(db_req);
+            
+            match bad_async_recv(db_recv).await.variant {
+                DatabaseReplyVariant::AddedItem(_) => {
+                    let timestamp = Utc::now();
+                    Ok((format!("Memory successfully recorded on {timestamp}"), Some(ProximaToolData::Memory { access_mode_id })))   
+                },
+                _ => Err(ProximaToolCallError::Network(format!("Database couldn't be reached to record the memory")))
+            }
+        },
+        _ => panic!("Impossible by that point, mode={mode}")
+    }
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -813,7 +950,8 @@ pub fn python_tool(mode:String, data:String, addr:SocketAddr) -> Result<String, 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum ProximaToolData {
     LocalMemory(HashMap<String, String>),
-    Agent(AgentToolData)
+    Agent(AgentToolData),
+    Memory {access_mode_id:AccessModeID}
 }
 
 impl ProximaToolData {
@@ -821,6 +959,7 @@ impl ProximaToolData {
         match self {
             Self::LocalMemory(key_value) => ContextData::Text(format!("<LocalMemory> local memory data : {:?}</LocalMemory>", key_value.clone())),
             Self::Agent(data) => ContextData::Text(format!("")),
+            Self::Memory { access_mode_id } => ContextData::Text(format!("")),
         }
     }
     pub fn get_local_mem_data(&self) -> HashMap<String, String> {
@@ -832,6 +971,12 @@ impl ProximaToolData {
     pub fn get_agent_tool_data(&self) -> &AgentToolData {
         match self {
             Self::Agent(data) => data,
+            _ => panic!("Not agent tool")
+        }
+    }
+    pub fn get_memory_am_id(&self) -> AccessModeID {
+        match self {
+            Self::Memory { access_mode_id } => *access_mode_id,
             _ => panic!("Not agent tool")
         }
     }
@@ -866,13 +1011,13 @@ pub enum AgentStatus {
 }
 
 
-pub async fn handle_tool_calling_response(response:ContextPart, tools:Tools, database_connection:DatabaseSender, ai_sender:AiEndpointSender) -> (ContextPart, Tools) {
+pub async fn handle_tool_calling_response(response:ContextPart, tools:Tools, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData) -> (ContextPart, Tools) {
     let mut out_context = ContextPart::new(vec![ContextData::Text(format!("<outputs>\n"))], ContextPosition::Tool);
     let mut out_tools = tools.clone();
     for data in response.get_data() {
         match data {
             ContextData::Text(text) => {
-                let (part, part_tools) = handle_tool_calling_context_data(text, out_tools.clone(), database_connection.clone(), ai_sender.clone()).await;
+                let (part, part_tools) = handle_tool_calling_context_data(text, out_tools.clone(), database_connection.clone(), ai_sender.clone(), runtime_tool_data).await;
                 out_tools = part_tools;
                 out_context.merge_data_with(part);
             },
@@ -927,7 +1072,7 @@ pub fn looks_like_nonstandard_final_response(response:&ContextPart) -> bool {
     !(found_start && found_end) && !found_call
 }
 
-async fn handle_tool_calling_context_data(text:&String, mut tools:Tools, database_connection:DatabaseSender, ai_sender:AiEndpointSender) -> (ContextPart, Tools) {
+async fn handle_tool_calling_context_data(text:&String, mut tools:Tools, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData) -> (ContextPart, Tools) {
     match Dom::parse(text) {
         Ok(parsed) => {
             let mut data = Vec::with_capacity(2);
@@ -936,7 +1081,7 @@ async fn handle_tool_calling_context_data(text:&String, mut tools:Tools, databas
                     Node::Element(elt) => {
                         match elt.name.trim() {
                             "call" => {
-                                match tools.call(elt, database_connection.clone(), ai_sender.clone()).await {
+                                match tools.call(elt, database_connection.clone(), ai_sender.clone(), runtime_tool_data).await {
                                     Ok((context_data, out_tools)) => {
                                         data.push(context_data);
                                         tools = out_tools;
@@ -953,5 +1098,17 @@ async fn handle_tool_calling_context_data(text:&String, mut tools:Tools, databas
             (ContextPart::new(data, ContextPosition::Tool), tools)
         },
         Err(_) => (ContextPart::new(vec![], ContextPosition::Tool), tools)
+    }
+}
+
+#[derive(Clone)]
+pub struct RuntimeToolData {
+    searxng_url:Option<String>,
+    python_server:Option<(Ipv4Addr, u16)>
+}
+
+impl RuntimeToolData {
+    pub fn new(searxng_url:Option<String>, python_server:Option<(Ipv4Addr, u16)>) -> Self {
+        Self { searxng_url, python_server }
     }
 }

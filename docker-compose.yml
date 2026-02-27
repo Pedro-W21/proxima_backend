@@ -1,0 +1,19 @@
+services:
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    ports:
+      - 8888:8080
+    volumes:
+      - ./data/searxng/config/:/etc/searxng/
+      - ./data/searxng/data/:/var/cache/searxng/
+  python:
+    image: proxima_python_server:any
+    ports:
+      - 4096:4096
+  proxima:
+    image: proxima_backend_server:any
+    ports:
+      - 8082:8082
+    volumes:
+      - ./data:/etc/proxima/
+    

@@ -104,11 +104,11 @@ impl Files {
         self.number_of_files += 1;
         id
     }
-    pub fn file_exists(&self, path:AbsolutePath) -> bool {
-        self.all_files.iter().find(|file| {&file.absolute_path == &path}).is_some()
+    pub fn file_exists(&self, path:AbsolutePath, on_device:DeviceID) -> bool {
+        self.all_files.iter().find(|file| {&file.absolute_path == &path && file.from_device == on_device}).is_some()
     }
     pub fn add_file(&mut self, file:NewFile, in_folder:Option<&mut ProxFolder>) -> Option<FileID> {
-        if !self.file_exists(file.absolute_path.clone()) {
+        if !self.file_exists(file.absolute_path.clone(), file.from_device) {
             match file.absolute_path.file_name() {
                 Some(name) => {
                     let name = name.to_os_string().to_string_lossy().to_string();

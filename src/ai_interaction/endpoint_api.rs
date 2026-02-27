@@ -49,5 +49,11 @@ pub enum EndpointResponseVariant {
     ContinueStream(ContextData, ContextPosition),
     EndStream(ContextData, ContextPosition),
     Block(ContextPart),
-    MultiTurnBlock(WholeContext)
+    MultiTurnBlock(WholeContext),
+    EndpointError(EndpointError)
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub enum EndpointError {
+    BackendUnavailable{url:String}
 }
