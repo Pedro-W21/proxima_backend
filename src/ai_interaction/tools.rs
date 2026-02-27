@@ -222,7 +222,7 @@ impl ProximaTool {
             "Python" => Some(Self::Python),
             "Agent" => Some(Self::Agent),
             "RNG" => Some(Self::Rng),
-            "Memory" => Some(Self::Rng),
+            "Memory" => Some(Self::Memory),
             _ => None
         }
     }
