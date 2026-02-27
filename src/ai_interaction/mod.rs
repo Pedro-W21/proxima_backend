@@ -332,7 +332,7 @@ pub async fn handle_request<B:BackendAPI + Send + 'static>(db_sender:DatabaseSen
 }
 
 #[cfg(all(target_family = "wasm"))]
-pub async fn handle_request<B:BackendAPI>(db_sender:DatabaseSender, backend_conn:<B as BackendAPI>::ConnData, request:EndpointRequest, self_sender:AiEndpointSender) {
+pub async fn handle_request<B:BackendAPI>(db_sender:DatabaseSender, backend_conn:<B as BackendAPI>::ConnData, request:EndpointRequest, self_sender:AiEndpointSender, runtime_tool_data:RuntimeToolData) {
     panic!("Not implemented in WASM")
 }
 
