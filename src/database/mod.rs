@@ -696,7 +696,8 @@ pub enum DatabaseRequestVariant {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum ToolRequest {
-    MemoryRequest(MemoryRequest)
+    MemoryRequest(MemoryRequest),
+    UpdateExistingChatContext(ChatID, WholeContext)
 }
 
 pub struct DatabaseRequest {
@@ -916,6 +917,10 @@ impl DatabaseHandler {
             ToolRequest::MemoryRequest(memory_request) => {
                 let memories = self.database.memories.retrieve_data_from_ids(self.database.memories.retrieve_ids(memory_request), self.database.database_folder.clone());
                 response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedManyItems(memories.into_iter().map(|(memory, data)| {DatabaseItem::Memory(memory, data)}).collect()) })
+            },
+            ToolRequest::UpdateExistingChatContext(chat_id, new_context) => {
+                self.database.chats.get_chats_mut().get_mut(&chat_id).map(|chat| {chat.context = new_context});
+                response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted})
             }
         }
     }

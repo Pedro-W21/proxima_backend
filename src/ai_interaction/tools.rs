@@ -623,7 +623,7 @@ pub async fn agent_tool(mode:String, input:String, agents_data:&AgentToolData, d
                     let starting_context = WholeContext::new_with_all_settings(vec![context_part], &configuration);
                     let mut chat = Chat::new_with_id(0, starting_context.clone(), None, 0, Some(configuration));
 
-                    let (ai_req, recv) = EndpointRequest::new(EndpointRequestVariant::RespondToFullPrompt { whole_context: starting_context, streaming: false, session_type: SessionType::Chat, chat_settings: chat.latest_used_config.clone() });
+                    let (ai_req, recv) = EndpointRequest::new(EndpointRequestVariant::RespondToFullPrompt { whole_context: starting_context, streaming: false, session_type: SessionType::Chat, chat_settings: chat.latest_used_config.clone(), chat_id:None });
                     
                     println!("[Agent] Sending agent prompt for : {}", agent_name);
                     ai_sender.send_prio(ai_req);
@@ -692,7 +692,7 @@ pub async fn agent_tool(mode:String, input:String, agents_data:&AgentToolData, d
                     let mut new_context = chat.context.clone();
                     new_context.add_part(ContextPart::new(vec![ContextData::Text(format!("<user_prompt>\n{}\n</user_prompt>", input_lines[1..].iter().map(|val| {format!("{}\n", val.clone())}).collect::<Vec<String>>().concat()))], ContextPosition::User));
 
-                    let (ai_req, recv) = EndpointRequest::new(EndpointRequestVariant::RespondToFullPrompt { whole_context: new_context, streaming: false, session_type: SessionType::Chat, chat_settings: chat.latest_used_config.clone() });
+                    let (ai_req, recv) = EndpointRequest::new(EndpointRequestVariant::RespondToFullPrompt { whole_context: new_context, streaming: false, session_type: SessionType::Chat, chat_settings: chat.latest_used_config.clone(), chat_id:None });
                     ai_sender.send_prio(ai_req);
                     match bad_async_recv(recv).await.variant {
                         EndpointResponseVariant::MultiTurnBlock(whole_context) => {
@@ -850,7 +850,7 @@ async fn memory_tool(mode:String, input:String, database_connection:DatabaseSend
 }
 
 #[cfg(not(target_family = "wasm"))]
-async fn bad_async_recv<T>(recv:Receiver<T>) -> T {
+pub async fn bad_async_recv<T>(recv:Receiver<T>) -> T {
     let value;
     loop {
         println!("Waiting to receive data");
@@ -871,7 +871,7 @@ async fn bad_async_recv<T>(recv:Receiver<T>) -> T {
 }
 
 #[cfg(all(target_family = "wasm"))]
-async fn bad_async_recv<T>(recv:Receiver<T>) -> T {
+pub async fn bad_async_recv<T>(recv:Receiver<T>) -> T {
     recv.recv().unwrap()
 }
 

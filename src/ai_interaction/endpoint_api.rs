@@ -2,7 +2,7 @@ use std::sync::mpmc::{channel, sync_channel, Receiver, Sender};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{database::configuration::ChatConfiguration, database::{access_modes::AccessModeID, chats::SessionType, context::{ContextData, ContextPart, ContextPosition, Prompt, WholeContext}}};
+use crate::database::{access_modes::AccessModeID, chats::{ChatID, SessionType}, configuration::ChatConfiguration, context::{ContextData, ContextPart, ContextPosition, Prompt, WholeContext}};
 
 
 
@@ -26,14 +26,14 @@ impl EndpointRequest {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum EndpointRequestVariant {
-    RespondToFullPrompt{whole_context:WholeContext, streaming:bool, session_type:SessionType, chat_settings:Option<ChatConfiguration>},
+    RespondToFullPrompt{whole_context:WholeContext, streaming:bool, session_type:SessionType, chat_settings:Option<ChatConfiguration>, chat_id:Option<ChatID>},
     Continue,
 }
 
 impl EndpointRequestVariant {
     pub fn is_stream(&self) -> bool {
         match self {
-            EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type, chat_settings } => *streaming,
+            EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type, chat_settings,chat_id } => *streaming,
             EndpointRequestVariant::Continue => false
         }
     }
