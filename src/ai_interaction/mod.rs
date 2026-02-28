@@ -214,6 +214,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                             }
                             special_bad_wait(80).await;
                         }
+                        response.concatenate_text();
                         whole_context.add_part(response);
                         self.update_chat(whole_context, chat_id).await;
                         println!("Sent back response");
