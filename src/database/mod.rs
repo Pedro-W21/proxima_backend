@@ -2,6 +2,7 @@ use std::{collections::{HashMap, HashSet, VecDeque}, iter::Step, path::PathBuf, 
 
 use access_modes::{AccessMode, AccessModeID, AccessModes};
 use chats::{Chat, ChatID, Chats};
+use chrono::Utc;
 use description::{Description, DescriptionTarget};
 use devices::{Device, DeviceID, Devices};
 use files::{FileID, Files, ProxFile};
@@ -12,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use tags::{Tag, TagID, Tags};
 use user::{PersonalInformation, UserData};
 
-use crate::{ai_interaction::create_prompt::{AgentPrompt, get_agent_prompt_context}, database::{configuration::{ChatConfigID, ChatConfiguration, ChatConfigurations}, context::WholeContext, loading_saving::{load_from_disk, save_to_disk}, media::{Media, MediaHash, MediaStorage}, memories::{Memories, Memory, MemoryID, MemoryRequest}}};
+use crate::{ai_interaction::create_prompt::{AgentPrompt, get_agent_prompt_context}, database::{configuration::{ChatConfigID, ChatConfiguration, ChatConfigurations}, context::WholeContext, loading_saving::{load_from_disk, save_to_disk}, media::{Media, MediaHash, MediaStorage}, memories::{Memories, Memory, MemoryID, MemoryRequest}, notifications::{Notification, NotificationID, Notifications}}};
 
 pub mod tags;
 pub mod folders;
@@ -27,6 +28,7 @@ pub mod access_modes;
 pub mod configuration;
 pub mod media;
 pub mod memories;
+pub mod notifications;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProxDatabase {
@@ -40,7 +42,8 @@ pub struct ProxDatabase {
     pub access_modes:AccessModes,
     pub configs:ChatConfigurations,
     pub media:MediaStorage,
-    pub memories:Memories
+    pub memories:Memories,
+    pub notifications:Notifications
 }
 
 impl ProxDatabase {
@@ -55,9 +58,10 @@ impl ProxDatabase {
         access_modes:AccessModes,
         configs:ChatConfigurations,
         media:MediaStorage,
-        memories:Memories
+        memories:Memories,
+        notifications:Notifications
     ) -> Self {
-        Self { files, folders, chats, tags, personal_info, database_folder, devices, access_modes, configs, media, memories }
+        Self { files, folders, chats, tags, personal_info, database_folder, devices, access_modes, configs, media, memories, notifications }
     }
     pub fn new(pseudonym:String, password_hash:String, database_folder:PathBuf) -> Self {
         if create_or_repair_database_folder_structure(database_folder.clone()) {
@@ -67,11 +71,11 @@ impl ProxDatabase {
             data
         }
         else {
-            Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder, chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new() }
+            Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder, chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new(), notifications:Notifications::new() }
         }
     }
     pub fn new_just_data(pseudonym:String, password_hash:String) -> ProxDatabase {
-        Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder:PathBuf::from("a/a/a/a/a/a/a/a"), chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new() }
+        Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder:PathBuf::from("a/a/a/a/a/a/a/a"), chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new(), notifications:Notifications::new() }
     }
     pub fn add_desc_and_tags(&mut self, desc_type:DescriptionTarget, desc:Description, tags:HashSet<TagID>) {
         match desc_type {
@@ -442,6 +446,22 @@ impl ProxDatabase {
                     self.memories.add_memory(data, memory.access_modes, memory.tags, self.database_folder.clone());
                     false
                 }
+            },
+            DatabaseItem::Notification(notif) => {
+                match self.notifications.get_notifications().get(&notif.id) {
+                    Some(notification) => if notif.timestamp == notification.timestamp {
+                        self.notifications.insert_notification_raw(notif);
+                        true
+                    }
+                    else {
+                        self.notifications.add_notification(notif);
+                        false
+                    },
+                    None => {
+                        self.notifications.add_notification(notif);
+                        false
+                    }
+                }
             }
         }
     }
@@ -473,7 +493,10 @@ impl ProxDatabase {
             },
             DatabaseItem::Memory(memory, data) => {
                 self.memories.add_memory(data, memory.access_modes, memory.tags, self.database_folder.clone());
-            }
+            },
+            DatabaseItem::Notification(notif) => {
+                self.notifications.insert_notification_raw(notif);
+            },
             DatabaseItem::UserData(user_data) => {
                 self.personal_info.user_data = user_data;
             }
@@ -491,6 +514,12 @@ impl ProxDatabase {
             DatabaseItemID::UserData => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::UserData(self.personal_info.user_data.clone()))},
             DatabaseItemID::Media(mediaid) => {let (media, data) = self.media.get_media_with_data(&mediaid, self.database_folder.clone()).unwrap(); DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Media(media.clone(), data))}},
             DatabaseItemID::Memory(memoryid) => {let (memory, data) = self.memories.get_memory_with_data(memoryid, self.database_folder.clone()).unwrap(); DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Memory(memory.clone(), data))}},
+            DatabaseItemID::Notification(notif) => if let Some(notification) = self.notifications.get_notifications().get(&notif) {
+                DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Notification(notification.clone()))}
+            }
+            else {
+                DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(id)) }
+            },
         }
     }
     pub fn update_request(&mut self, item:DatabaseItem) -> DatabaseReply {
@@ -505,6 +534,7 @@ impl ProxDatabase {
             DatabaseItem::ChatConfig(config) => {self.configs.update_config(config); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
             DatabaseItem::Media(media, data) => {self.media.update_media(media, data, self.database_folder.clone()); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
             DatabaseItem::Memory(memory, data) => {self.memories.update_memory(memory.id, data, self.database_folder.clone()); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
+            DatabaseItem::Notification(notif) => {self.notifications.insert_notification_raw(notif); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
             DatabaseItem::UserData(user_data) => {self.personal_info.user_data = user_data; DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
         }  
     }
@@ -519,7 +549,17 @@ impl ProxDatabase {
             DatabaseItem::ChatConfig(config) => {let id = self.configs.add_config(config); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::ChatConfiguration(id)) }, DatabaseItemID::ChatConfiguration(id))},
             DatabaseItem::Media(media, data) => {let id = self.media.add_media(data, media.tags, media.access_modes, media.file_name, self.database_folder.clone(), media.media_type); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Media(id)) }, DatabaseItemID::Media(id))},
             DatabaseItem::Memory(memory, data) => {let id = self.memories.add_memory(data, memory.access_modes, memory.tags, self.database_folder.clone()); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Memory(id)) }, DatabaseItemID::Memory(id))},
-            DatabaseItem::UserData(user_data) => {self.personal_info.user_data = user_data; (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::UserData) }, DatabaseItemID::UserData)}
+            DatabaseItem::UserData(user_data) => {self.personal_info.user_data = user_data; (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::UserData) }, DatabaseItemID::UserData)},
+            DatabaseItem::Notification(notif) => {let id = self.notifications.add_notification(notif); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Notification(id)) }, DatabaseItemID::Notification(id))}
+        }
+    }
+    pub fn remove_request(&mut self, id:DatabaseItemID) -> DatabaseReply {
+        match id {
+            DatabaseItemID::Notification(notif) => {
+                self.notifications.remove_notification(notif);
+                DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }
+            },
+            _ => DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotDeletable(id)) }
         }
     }
 }
@@ -534,7 +574,8 @@ pub enum DatabaseItem {
     UserData(UserData),
     ChatConfig(ChatConfiguration),
     Media(Media, Vec<u8>),
-    Memory(Memory, String)
+    Memory(Memory, String),
+    Notification(Notification)
 }
 
 impl DatabaseItem {
@@ -549,7 +590,8 @@ impl DatabaseItem {
             Self::ChatConfig(config) => DatabaseItemID::ChatConfiguration(config.id),
             Self::UserData(user_data) => DatabaseItemID::UserData,
             Self::Media(media, _) => DatabaseItemID::Media(media.hash),
-            Self::Memory(memory, _) => DatabaseItemID::Memory(memory.id)
+            Self::Memory(memory, _) => DatabaseItemID::Memory(memory.id),
+            Self::Notification(notif) => DatabaseItemID::Memory(notif.id)
         }
     }
     
@@ -591,13 +633,17 @@ impl DatabaseItem {
                 DatabaseItemID::Memory(id) => memory.id = id,
                 _ => panic!("wrong kind of ID")
             },
+            Self::Notification(notif) => match new_id {
+                DatabaseItemID::Notification(id) => notif.id = id,
+                _ => panic!("wrong kind of ID")
+            },
             Self::UserData(user_data) => ()
         }
     }
 }
 
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DatabaseItemID {
     Device(DeviceID),
     Chat(ChatID),
@@ -608,7 +654,8 @@ pub enum DatabaseItemID {
     UserData,
     ChatConfiguration(ChatConfigID),
     Media(MediaHash),
-    Memory(MemoryID)
+    Memory(MemoryID),
+    Notification(NotificationID)
 }
 
 impl Step for DatabaseItemID {
@@ -623,6 +670,7 @@ impl Step for DatabaseItemID {
             DatabaseItemID::ChatConfiguration(id) => *id,
             DatabaseItemID::Media(media) => 1,
             DatabaseItemID::Memory(id) => *id,
+            DatabaseItemID::Notification(id) => *id,
             DatabaseItemID::UserData => 1
         };
         let end_id = match end {
@@ -634,6 +682,7 @@ impl Step for DatabaseItemID {
             DatabaseItemID::Tag(id) => *id,
             DatabaseItemID::ChatConfiguration(id) => *id,
             DatabaseItemID::Memory(id) => *id,
+            DatabaseItemID::Notification(id) => *id,
             DatabaseItemID::Media(media) => 0,
             DatabaseItemID::UserData => 0
         };
@@ -654,6 +703,7 @@ impl Step for DatabaseItemID {
             DatabaseItemID::Tag(id) => Some(DatabaseItemID::Tag(id + 1)),
             DatabaseItemID::ChatConfiguration(id) => Some(DatabaseItemID::ChatConfiguration(id + 1)),
             DatabaseItemID::Memory(id) => Some(DatabaseItemID::Memory(id + 1)),
+            DatabaseItemID::Notification(id) => Some(DatabaseItemID::Notification(id + 1)),
             DatabaseItemID::UserData => None,
             DatabaseItemID::Media(med) => None
         }
@@ -668,6 +718,7 @@ impl Step for DatabaseItemID {
             DatabaseItemID::Tag(id) => Some(DatabaseItemID::Tag(id - 1)),
             DatabaseItemID::ChatConfiguration(id) => Some(DatabaseItemID::ChatConfiguration(id - 1)),
             DatabaseItemID::Memory(id) => Some(DatabaseItemID::Memory(id - 1)),
+            DatabaseItemID::Notification(id) => Some(DatabaseItemID::Notification(id - 1)),
             DatabaseItemID::UserData => None,
             DatabaseItemID::Media(med) => None
         }
@@ -687,6 +738,7 @@ pub enum DatabaseRequestVariant {
     Update(DatabaseItem),
     Info(DatabaseInfoRequest),
     Add(DatabaseItem),
+    Remove(DatabaseItemID),
     ToolRequest(ToolRequest),
     NewAuthKey,
     VerifyAuthKey(String),
@@ -723,7 +775,7 @@ impl DatabaseRequest {
 pub enum DatabaseInfoReply {
     NumbersOfItems {devices:usize, chats:usize, folders:usize, files:usize, tags:usize, access_modes:usize},
     LatestItems {items:Vec<Option<DatabaseItem>>},
-    UnknownUpdates {updates:Vec<(DatabaseItemID, DatabaseItem)>},
+    UnknownUpdates {updates:Vec<ClientUpdate>},
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -745,7 +797,9 @@ pub enum DatabaseReplyVariant {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum DatabaseError {
-    SavingError
+    SavingError,
+    ItemNotFound(DatabaseItemID),
+    ItemNotDeletable(DatabaseItemID)
 }
 
 pub struct DatabaseReply {
@@ -753,7 +807,13 @@ pub struct DatabaseReply {
 }
 
 pub struct ClientSessionData {
-    pending_updates:VecDeque<(DatabaseItemID, DatabaseItem)>,
+    pending_updates:VecDeque<ClientUpdate>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub enum ClientUpdate {
+    ItemUpdate(DatabaseItemID, DatabaseItem),
+    ItemRemoval(DatabaseItemID)
 }
 
 pub struct DatabaseHandler {
@@ -809,11 +869,11 @@ impl DatabaseHandler {
         match auth_key {
             Some(key) => for (user, data) in self.auth_sessions.iter_mut() {
                 if user != &key {
-                    data.pending_updates.push_back((item.get_id(), item.clone()));
+                    data.pending_updates.push_back(ClientUpdate::ItemUpdate(item.get_id(), item.clone()));
                 }
             },
             None => for (user, data) in self.auth_sessions.iter_mut() {
-                data.pending_updates.push_back((item.get_id(), item.clone()));
+                data.pending_updates.push_back(ClientUpdate::ItemUpdate(item.get_id(), item.clone()));
             }
         }
         self.changed_since_last_save = true;
@@ -826,11 +886,11 @@ impl DatabaseHandler {
         match auth_key {
             Some(key) => for (user, data) in self.auth_sessions.iter_mut() {
                 if user != &key {
-                    data.pending_updates.push_back((id.clone(), s_item.clone()));
+                    data.pending_updates.push_back(ClientUpdate::ItemUpdate(id.clone(), s_item.clone()));
                 }
             },
             None => for (user, data) in self.auth_sessions.iter_mut() {
-                data.pending_updates.push_back((id.clone(), s_item.clone()));
+                data.pending_updates.push_back(ClientUpdate::ItemUpdate(id.clone(), s_item.clone()));
             }
         }
         response_sender.send(res)
@@ -919,10 +979,31 @@ impl DatabaseHandler {
                 response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedManyItems(memories.into_iter().map(|(memory, data)| {DatabaseItem::Memory(memory, data)}).collect()) })
             },
             ToolRequest::UpdateExistingChatContext(chat_id, new_context) => {
-                self.database.chats.get_chats_mut().get_mut(&chat_id).map(|chat| {chat.context = new_context});
+                self.database.chats.get_chats_mut().get_mut(&chat_id).map(|chat| {
+                    chat.context = new_context;
+                    chat.latest_message = Utc::now();
+                    for (user, data) in self.auth_sessions.iter_mut() {
+                        data.pending_updates.push_back(ClientUpdate::ItemUpdate(DatabaseItemID::Chat(chat_id), DatabaseItem::Chat(chat.clone())));
+                    }
+                });
+
                 response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted})
             }
         }
+    }
+
+    fn handle_remove_request(&mut self, id:DatabaseItemID, response_sender:Sender<DatabaseReply>, auth_key:Option<String>) -> Result<(), SendError<DatabaseReply>> {
+        match auth_key {
+            Some(key) => for (user, data) in self.auth_sessions.iter_mut() {
+                if user != &key {
+                    data.pending_updates.push_back(ClientUpdate::ItemRemoval(id));
+                }
+            },
+            None => for (user, data) in self.auth_sessions.iter_mut() {
+                data.pending_updates.push_back(ClientUpdate::ItemRemoval(id));
+            }
+        }
+        response_sender.send(self.database.remove_request(id))
     }
 
     fn handle_request(&mut self, request:DatabaseRequest) -> Result<(), SendError<DatabaseReply>> {
@@ -930,6 +1011,7 @@ impl DatabaseHandler {
             DatabaseRequestVariant::Get(id) => self.handle_get_request(id, request.response_sender),
             DatabaseRequestVariant::Add(item) => self.handle_add_request(item, request.response_sender, request.auth_key),
             DatabaseRequestVariant::Update(item) => self.handle_update_request(item, request.response_sender, request.auth_key),
+            DatabaseRequestVariant::Remove(id) => self.handle_remove_request(id, request.response_sender, request.auth_key),
             DatabaseRequestVariant::NewAuthKey => self.handle_new_auth_key(request.response_sender),
             DatabaseRequestVariant::VerifyAuthKey(auth) => self.handle_auth_verification(auth, request.response_sender),
             DatabaseRequestVariant::Info(info_request) => self.handle_info_request(info_request, request.response_sender),

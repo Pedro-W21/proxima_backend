@@ -1,9 +1,9 @@
-use std::{sync::{mpmc::{self, Receiver, Sender, channel}, mpsc::RecvTimeoutError}, thread::{self, JoinHandle}, time::Duration};
+use std::{collections::HashSet, sync::{mpmc::{self, Receiver, Sender, channel}, mpsc::RecvTimeoutError}, thread::{self, JoinHandle}, time::Duration};
 
 use backend_api::BackendAPI;
 use endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponse, EndpointResponseVariant};
 
-use crate::{ai_interaction::{backend_api::BackendError, tools::{RuntimeToolData, bad_async_recv, handle_tool_calling_response, is_valid_tool_calling_response, looks_like_nonstandard_final_response}}, database::{DatabaseItem, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, chats::{ChatID, SessionType}, context::{ContextData, ContextPart, ContextPosition, WholeContext}}};
+use crate::{ai_interaction::{backend_api::BackendError, tools::{RuntimeToolData, bad_async_recv, handle_tool_calling_response, is_valid_tool_calling_response, looks_like_nonstandard_final_response}}, database::{DatabaseItem, DatabaseItemID, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, access_modes::AccessModeID, chats::{ChatID, SessionType}, context::{ContextData, ContextPart, ContextPosition, WholeContext}, notifications::{Notification, NotificationReason}}};
 
 use crate::ai_interaction::endpoint_api::EndpointError;
 pub mod endpoint_api;
@@ -35,14 +35,18 @@ impl<B:BackendAPI> RequestHandler<B> {
     pub fn new(database_sender:DatabaseSender, request_variant:EndpointRequestVariant, response_sender:Sender<EndpointResponse>, backend:B, streaming:bool, self_sender:AiEndpointSender, runtime_tool_data:RuntimeToolData) -> Self {
         Self { database_sender, request_variant, response_sender, backend, streaming, self_sender, runtime_tool_data }
     }
-    async fn update_chat(&mut self, new_whole_context:WholeContext, chat_id:Option<ChatID>) {
+    async fn update_chat(&mut self, new_whole_context:WholeContext, chat_id:Option<ChatID>, access_mode:AccessModeID) {
         match chat_id {
             Some(id) => {
                 let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::ToolRequest(crate::database::ToolRequest::UpdateExistingChatContext(id, new_whole_context)), None);
                 self.database_sender.send_prio(db_req);
                 let reply = bad_async_recv(db_recv).await;
                 match reply.variant {
-                    DatabaseReplyVariant::RequestExecuted => (),
+                    DatabaseReplyVariant::RequestExecuted => {
+                        let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Add(DatabaseItem::Notification(Notification::new(Some(DatabaseItemID::Chat(id)), HashSet::from([0, access_mode]), NotificationReason::ChatRoundFinished, None))), None);
+                        self.database_sender.send_prio(db_req);
+                        let reply = bad_async_recv(db_recv).await;
+                    },
                     _ => println!("[AI request handler] chat update failed")
                 } 
             },
@@ -52,7 +56,7 @@ impl<B:BackendAPI> RequestHandler<B> {
     pub async fn respond(mut self) -> Result<(), BackendError> {
         match self.request_variant.clone() {
             EndpointRequestVariant::Continue => todo!("Implement continues"),
-            EndpointRequestVariant::RespondToFullPrompt { mut whole_context, streaming, session_type, chat_settings, chat_id } => {
+            EndpointRequestVariant::RespondToFullPrompt { mut whole_context, streaming, session_type, chat_settings, chat_id, access_mode } => {
                 match chat_settings {
                     Some(settings) => {
                         println!("in settings response cycle");
@@ -65,7 +69,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                                 let mut new_tools = tools.clone();
                                 let mut i = 0;
                                 while !is_valid_tool_calling_response(&response) && !looks_like_nonstandard_final_response(&response) && i < 8 {
-                                    let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone(), self.database_sender.clone(), self.self_sender.clone(), &self.runtime_tool_data).await;
+                                    let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone(), self.database_sender.clone(), self.self_sender.clone(), &self.runtime_tool_data, access_mode).await;
                                     whole_context.add_part(response.clone());
                                     whole_context.add_part(added_context);
                                     whole_context.add_part(new_tools.get_tool_data_insert());
@@ -82,14 +86,14 @@ impl<B:BackendAPI> RequestHandler<B> {
                                 }
                                 whole_context.add_part(response);
                                 println!("got response");
-                                self.update_chat(whole_context.clone(), chat_id).await;
+                                self.update_chat(whole_context.clone(), chat_id, access_mode).await;
                                 self.response_sender.send(EndpointResponse { variant: EndpointResponseVariant::MultiTurnBlock(whole_context) });
                                 println!("Sent back response");
                             },
                             None => {
                                 println!("got response");
                                 whole_context.add_part(response.clone());
-                                self.update_chat(whole_context, chat_id).await;
+                                self.update_chat(whole_context, chat_id, access_mode).await;
                                 self.response_sender.send(EndpointResponse { variant: EndpointResponseVariant::Block(response) });
                                 println!("Sent back response");
                             },
@@ -102,7 +106,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                         let response = self.backend.get_response_to_latest_prompt_for(id).await;
                         println!("got response");
                         whole_context.add_part(response.clone());
-                        self.update_chat(whole_context, chat_id).await;
+                        self.update_chat(whole_context, chat_id, access_mode).await;
                         self.response_sender.send(EndpointResponse { variant: EndpointResponseVariant::Block(response) });
                         println!("Sent back response");
                     }
@@ -114,7 +118,7 @@ impl<B:BackendAPI> RequestHandler<B> {
     pub async fn streaming_respond(mut self) -> Result<(), BackendError> {
         match self.request_variant.clone() {
             EndpointRequestVariant::Continue => todo!("implement streaming continues"),
-            EndpointRequestVariant::RespondToFullPrompt { mut whole_context, streaming, session_type, chat_settings, chat_id } => {
+            EndpointRequestVariant::RespondToFullPrompt { mut whole_context, streaming, session_type, chat_settings, chat_id, access_mode } => {
                 let (rep_sender, rep_recv) = mpmc::channel();
                 match chat_settings {
                     Some(settings) => {
@@ -143,7 +147,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                                 let mut new_tools = tools.clone();
                                 let mut i = 0;
                                 while !is_valid_tool_calling_response(&response) && !looks_like_nonstandard_final_response(&response) && i < 8 {
-                                    let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone(), self.database_sender.clone(), self.self_sender.clone(), &self.runtime_tool_data).await;
+                                    let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone(), self.database_sender.clone(), self.self_sender.clone(), &self.runtime_tool_data, access_mode).await;
                                     whole_context.add_part(response.clone());
                                     send_context_part_streaming_blocking(added_context.clone(), self.response_sender.clone());
                                     whole_context.add_part(added_context);
@@ -178,7 +182,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                                     response.get_data_mut().push(ContextData::Text("</response>\n".to_string()));
                                 }
                                 whole_context.add_part(response);
-                                self.update_chat(whole_context, chat_id).await;
+                                self.update_chat(whole_context, chat_id, access_mode).await;
                                 println!("got response");
                                 // self.response_sender.send(EndpointResponse { variant: EndpointResponseVariant::MultiTurnBlock(whole_context) }).unwrap();
                                 println!("Sent back response");
@@ -188,7 +192,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                                 println!("got response");
 
                                 whole_context.add_part(response);
-                                self.update_chat(whole_context, chat_id).await;
+                                self.update_chat(whole_context, chat_id, access_mode).await;
                                 // self.response_sender.send(EndpointResponse { variant: EndpointResponseVariant::Block(response) }).unwrap();
                                 println!("Sent back response");
                             },
@@ -216,7 +220,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                         }
                         response.concatenate_text();
                         whole_context.add_part(response);
-                        self.update_chat(whole_context, chat_id).await;
+                        self.update_chat(whole_context, chat_id, access_mode).await;
                         println!("Sent back response");
                     }
                 }
@@ -349,7 +353,7 @@ pub async fn handle_request<B:BackendAPI + Send + 'static>(db_sender:DatabaseSen
         println!("Inside task !");
         match request.variant.clone() {
             EndpointRequestVariant::Continue => (),
-            EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type, chat_settings, chat_id} => {
+            EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type, chat_settings, chat_id, access_mode} => {
 
                 let response = request.response_tunnel.clone();
                 let request = request.variant.clone();

@@ -68,7 +68,7 @@ impl Tools {
         base += &String::from("\n</ToolUse>");
         ContextPart::new(vec![ContextData::Text(base)], ContextPosition::System)
     }
-    pub async fn call(&self, call_element:Element, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData) -> Result<(ContextData, Self), ContextPart> {
+    pub async fn call(&self, call_element:Element, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData, access_mode_id:AccessModeID) -> Result<(ContextData, Self), ContextPart> {
         dbg!(call_element.clone());
         if call_element.children.len() == 3 {
             let mut tool_name = String::new();
@@ -106,7 +106,7 @@ impl Tools {
                         },
                         _ => return Err(ProximaToolCallError::Parsing(ToolParsingError::NotAnElement).generate_error_output(tool_name, action))
                     }
-                    return tool.respond_to(action.clone(), inputs, self.tool_data.get(&tool), database_connection, ai_sender, runtime_tool_data).await.map(|(context, new_data)| {(context, 
+                    return tool.respond_to(action.clone(), inputs, self.tool_data.get(&tool), database_connection, ai_sender, runtime_tool_data, access_mode_id).await.map(|(context, new_data)| {(context, 
                     match new_data {
                         Some(new_data) => {
                             let mut new_self = self.clone();
@@ -226,7 +226,7 @@ impl ProximaTool {
             _ => None
         }
     }
-    pub async fn respond_to(&self, action:String, input:String, data:Option<&ProximaToolData>, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData) -> Result<(ContextData, Option<ProximaToolData>), ProximaToolCallError> {
+    pub async fn respond_to(&self, action:String, input:String, data:Option<&ProximaToolData>, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData, access_mode_id:AccessModeID) -> Result<(ContextData, Option<ProximaToolData>), ProximaToolCallError> {
         match self {
             Self::LocalMemory => {
                 let mut new_data = data.unwrap().get_local_mem_data();
@@ -379,7 +379,7 @@ impl ProximaTool {
                 }
             },
             Self::Agent => {
-                let (output_str, new_data) = agent_tool(action.to_string(), input, data.unwrap().get_agent_tool_data(), database_connection, ai_sender).await?;
+                let (output_str, new_data) = agent_tool(action.to_string(), input, data.unwrap().get_agent_tool_data(), database_connection, ai_sender, access_mode_id).await?;
                 Ok((generate_call_output("Agent".to_string(), action.to_string(), output_str), new_data))
             },
             Self::Rng => {
@@ -388,7 +388,7 @@ impl ProximaTool {
                 Ok((generate_call_output("RNG".to_string(), action.to_string(), output_str), new_data))
             },
             Self::Memory => {
-                let (output_str, new_data) = memory_tool(action.to_string(), input, database_connection, data.unwrap().get_memory_am_id()).await?;
+                let (output_str, new_data) = memory_tool(action.to_string(), input, database_connection, access_mode_id).await?;
                 Ok((generate_call_output("Memory".to_string(), action.to_string(), output_str), new_data))
             }
         }
@@ -599,7 +599,7 @@ fn read_proxima_python_toolcall_string(stream:&mut TcpStream) -> Result<String, 
     
 }
 
-pub async fn agent_tool(mode:String, input:String, agents_data:&AgentToolData, database_connection:DatabaseSender, ai_sender:AiEndpointSender) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
+pub async fn agent_tool(mode:String, input:String, agents_data:&AgentToolData, database_connection:DatabaseSender, ai_sender:AiEndpointSender, access_mode_id:AccessModeID) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
     let mut new_data = agents_data.clone();
     let input_lines:Vec<String> = input.trim().lines().map(|line| {line.trim().to_string()}).collect();
     if input_lines.len() >= 1 {
@@ -623,7 +623,7 @@ pub async fn agent_tool(mode:String, input:String, agents_data:&AgentToolData, d
                     let starting_context = WholeContext::new_with_all_settings(vec![context_part], &configuration);
                     let mut chat = Chat::new_with_id(0, starting_context.clone(), None, 0, Some(configuration));
 
-                    let (ai_req, recv) = EndpointRequest::new(EndpointRequestVariant::RespondToFullPrompt { whole_context: starting_context, streaming: false, session_type: SessionType::Chat, chat_settings: chat.latest_used_config.clone(), chat_id:None });
+                    let (ai_req, recv) = EndpointRequest::new(EndpointRequestVariant::RespondToFullPrompt { whole_context: starting_context, streaming: false, session_type: SessionType::Chat, chat_settings: chat.latest_used_config.clone(), chat_id:None, access_mode:access_mode_id });
                     
                     println!("[Agent] Sending agent prompt for : {}", agent_name);
                     ai_sender.send_prio(ai_req);
@@ -692,7 +692,7 @@ pub async fn agent_tool(mode:String, input:String, agents_data:&AgentToolData, d
                     let mut new_context = chat.context.clone();
                     new_context.add_part(ContextPart::new(vec![ContextData::Text(format!("<user_prompt>\n{}\n</user_prompt>", input_lines[1..].iter().map(|val| {format!("{}\n", val.clone())}).collect::<Vec<String>>().concat()))], ContextPosition::User));
 
-                    let (ai_req, recv) = EndpointRequest::new(EndpointRequestVariant::RespondToFullPrompt { whole_context: new_context, streaming: false, session_type: SessionType::Chat, chat_settings: chat.latest_used_config.clone(), chat_id:None });
+                    let (ai_req, recv) = EndpointRequest::new(EndpointRequestVariant::RespondToFullPrompt { whole_context: new_context, streaming: false, session_type: SessionType::Chat, chat_settings: chat.latest_used_config.clone(), chat_id:None, access_mode:access_mode_id  });
                     ai_sender.send_prio(ai_req);
                     match bad_async_recv(recv).await.variant {
                         EndpointResponseVariant::MultiTurnBlock(whole_context) => {
@@ -1012,13 +1012,13 @@ pub enum AgentStatus {
 }
 
 
-pub async fn handle_tool_calling_response(response:ContextPart, tools:Tools, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData) -> (ContextPart, Tools) {
+pub async fn handle_tool_calling_response(response:ContextPart, tools:Tools, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData, access_mode_id:AccessModeID) -> (ContextPart, Tools) {
     let mut out_context = ContextPart::new(vec![ContextData::Text(format!("<outputs>\n"))], ContextPosition::Tool);
     let mut out_tools = tools.clone();
     for data in response.get_data() {
         match data {
             ContextData::Text(text) => {
-                let (part, part_tools) = handle_tool_calling_context_data(text, out_tools.clone(), database_connection.clone(), ai_sender.clone(), runtime_tool_data).await;
+                let (part, part_tools) = handle_tool_calling_context_data(text, out_tools.clone(), database_connection.clone(), ai_sender.clone(), runtime_tool_data,access_mode_id).await;
                 out_tools = part_tools;
                 out_context.merge_data_with(part);
             },
@@ -1073,7 +1073,7 @@ pub fn looks_like_nonstandard_final_response(response:&ContextPart) -> bool {
     !(found_start && found_end) && !found_call
 }
 
-async fn handle_tool_calling_context_data(text:&String, mut tools:Tools, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData) -> (ContextPart, Tools) {
+async fn handle_tool_calling_context_data(text:&String, mut tools:Tools, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData, access_mode_id:AccessModeID) -> (ContextPart, Tools) {
     match Dom::parse(text) {
         Ok(parsed) => {
             let mut data = Vec::with_capacity(2);
@@ -1082,7 +1082,7 @@ async fn handle_tool_calling_context_data(text:&String, mut tools:Tools, databas
                     Node::Element(elt) => {
                         match elt.name.trim() {
                             "call" => {
-                                match tools.call(elt, database_connection.clone(), ai_sender.clone(), runtime_tool_data).await {
+                                match tools.call(elt, database_connection.clone(), ai_sender.clone(), runtime_tool_data, access_mode_id).await {
                                     Ok((context_data, out_tools)) => {
                                         data.push(context_data);
                                         tools = out_tools;

@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs::{DirBuilder, File}, io::{Read, Write}, path:
 
 use serde::{de::DeserializeOwned, Deserialize};
 
-use crate::database::{ProxDatabase, access_modes::AccessModes, chats::Chats, configuration::ChatConfigurations, devices::Devices, files::Files, folders::Folders, media::MediaStorage, memories::Memories, tags::Tags, user::PersonalInformation};
+use crate::database::{ProxDatabase, access_modes::AccessModes, chats::Chats, configuration::ChatConfigurations, devices::Devices, files::Files, folders::Folders, media::MediaStorage, memories::Memories, notifications::Notifications, tags::Tags, user::PersonalInformation};
 
 const PREMADE_FILES:LazyLock<HashMap<String, Vec<u8>>> = LazyLock::new(|| {
     HashMap::from(
@@ -44,6 +44,7 @@ const FOLDER_STRUCTURE:LazyLock<HashMap<String, PathBuf>> = LazyLock::new(|| {
             ("chats".to_string(), PathBuf::from("personal_data/database/chats.json")),
             ("media".to_string(), PathBuf::from("personal_data/database/media.json")),
             ("memories".to_string(), PathBuf::from("personal_data/database/memories.json")),
+            ("notifications".to_string(), PathBuf::from("personal_data/database/notifications.json")),
             ("access_modes".to_string(), PathBuf::from("personal_data/database/access_modes.json")),
             ("devices".to_string(), PathBuf::from("personal_data/database/devices.json")),
 
@@ -130,6 +131,9 @@ pub fn save_to_disk(database:ProxDatabase, absolute_starting_folder:PathBuf) -> 
     let string = serde_json::to_string(&database.memories).unwrap();
     save_string_into_file(string, absolute_starting_folder.join(FOLDER_STRUCTURE.get("memories").unwrap()))?;
 
+    let string = serde_json::to_string(&database.notifications).unwrap();
+    save_string_into_file(string, absolute_starting_folder.join(FOLDER_STRUCTURE.get("notifications").unwrap()))?;
+
     Ok(())
 }
 
@@ -154,5 +158,6 @@ pub fn load_from_disk(absolute_starting_folder:PathBuf) -> Result<ProxDatabase, 
     let configs = load_json_from_file::<ChatConfigurations>(absolute_starting_folder.join(FOLDER_STRUCTURE.get("configurations").unwrap()))?;
     let media = load_json_from_file::<MediaStorage>(absolute_starting_folder.join(FOLDER_STRUCTURE.get("media").unwrap()))?;
     let memories = load_json_from_file::<Memories>(absolute_starting_folder.join(FOLDER_STRUCTURE.get("memories").unwrap()))?;
-    Ok(ProxDatabase::from_parts(files, folders, chats, tags, personal_information, absolute_starting_folder, devices, access_modes, configs, media, memories))
+    let notifications = load_json_from_file::<Notifications>(absolute_starting_folder.join(FOLDER_STRUCTURE.get("notifications").unwrap()))?;
+    Ok(ProxDatabase::from_parts(files, folders, chats, tags, personal_information, absolute_starting_folder, devices, access_modes, configs, media, memories, notifications))
 }
