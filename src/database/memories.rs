@@ -80,9 +80,9 @@ impl Memories {
     pub fn retrieve_ids(&self, request:MemoryRequest) -> Vec<MemoryID> {
         let mut retrieved = Vec::with_capacity(4);
         for (id, memory) in &self.memories {
-            if memory.last_update >= request.from && memory.last_update <= request.to && memory.access_modes.intersection(&request.access_modes).size_hint().0 > 0 {
+            if memory.last_update >= request.from && memory.last_update <= request.to && memory.access_modes.intersection(&request.access_modes).count() > 0 {
                 match &request.tags {
-                    Some(tags) => if memory.tags.intersection(tags).size_hint().0 > 0 {
+                    Some(tags) => if memory.tags.intersection(tags).count() > 0 {
                         retrieved.push(*id);
                     },
                     None => retrieved.push(*id),
@@ -95,7 +95,7 @@ impl Memories {
         let mut retrieved = Vec::with_capacity(ids.len());
         for id in ids {
             self.memories.get(&id).map(|memory| {
-                match File::open(proxima_data_path.join(memory.file_name.clone())) {
+                match File::open(proxima_data_path.join(format!("memories/{}", memory.file_name.clone()))) {
                     Ok(mut file) => {
                         let mut string = String::with_capacity(512);
                         file.read_to_string(&mut string).expect("Memory could not be read back");
