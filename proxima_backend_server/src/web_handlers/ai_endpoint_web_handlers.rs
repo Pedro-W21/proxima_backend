@@ -17,7 +17,7 @@ use proxima_backend::web_payloads::{AIPayload, AIResponse};
 
 use serde::ser::StdError;
 
-enum SpecialError {
+pub enum SpecialError {
 
 }
 

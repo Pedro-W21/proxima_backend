@@ -752,6 +752,11 @@ pub enum ToolRequest {
     UpdateExistingChatContext(ChatID, WholeContext)
 }
 
+pub enum InternalDBReq {
+    Database(DatabaseRequest),
+    Tunnel(TunnelRequest)
+}
+
 pub struct DatabaseRequest {
     response_sender:Sender<DatabaseReply>,
     variant:DatabaseRequestVariant,
@@ -771,6 +776,25 @@ impl DatabaseRequest {
         )
     }
 }
+
+pub struct TunnelRequest {
+    response_sender:Sender<Receiver<ClientUpdate>>,
+    auth_key:String,
+}
+
+impl TunnelRequest {
+    pub fn new(auth_key:String) -> (Self, Receiver<Receiver<ClientUpdate>>) {
+        let (response_sender, response_receiver) = channel();
+        (
+            Self {
+                response_sender,
+                auth_key
+            },
+            response_receiver
+        )
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub enum DatabaseInfoReply {
     NumbersOfItems {devices:usize, chats:usize, folders:usize, files:usize, tags:usize, access_modes:usize},
@@ -807,7 +831,8 @@ pub struct DatabaseReply {
 }
 
 pub struct ClientSessionData {
-    pending_updates:VecDeque<ClientUpdate>,
+    pending_updates_send:Sender<ClientUpdate>,
+    pending_updates_recv:Receiver<ClientUpdate>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -817,8 +842,8 @@ pub enum ClientUpdate {
 }
 
 pub struct DatabaseHandler {
-    priority_request_rcv:Receiver<DatabaseRequest>,
-    request_rcv:Receiver<DatabaseRequest>,
+    priority_request_rcv:Receiver<InternalDBReq>,
+    request_rcv:Receiver<InternalDBReq>,
     database:ProxDatabase,
     auth_sessions:HashMap<String, ClientSessionData>,
     auth_sessions_rng:StdRng,
@@ -832,7 +857,7 @@ static LOCAL_AUTHKEY:LazyLock<String> = LazyLock::new(|| {
 
 
 impl DatabaseHandler {
-    pub fn new(priority_request_rcv:Receiver<DatabaseRequest>, request_rcv:Receiver<DatabaseRequest>, database:ProxDatabase) -> Self {
+    pub fn new(priority_request_rcv:Receiver<InternalDBReq>, request_rcv:Receiver<InternalDBReq>, database:ProxDatabase) -> Self {
         Self { priority_request_rcv, request_rcv, database, auth_sessions:HashMap::with_capacity(32), auth_sessions_rng:StdRng::from_os_rng(), changed_since_last_save:true }
     }
     pub fn handling_loop(&mut self) {
@@ -869,11 +894,11 @@ impl DatabaseHandler {
         match auth_key {
             Some(key) => for (user, data) in self.auth_sessions.iter_mut() {
                 if user != &key {
-                    data.pending_updates.push_back(ClientUpdate::ItemUpdate(item.get_id(), item.clone()));
+                    data.pending_updates_send.send(ClientUpdate::ItemUpdate(item.get_id(), item.clone()));
                 }
             },
             None => for (user, data) in self.auth_sessions.iter_mut() {
-                data.pending_updates.push_back(ClientUpdate::ItemUpdate(item.get_id(), item.clone()));
+                data.pending_updates_send.send(ClientUpdate::ItemUpdate(item.get_id(), item.clone()));
             }
         }
         self.changed_since_last_save = true;
@@ -886,18 +911,19 @@ impl DatabaseHandler {
         match auth_key {
             Some(key) => for (user, data) in self.auth_sessions.iter_mut() {
                 if user != &key {
-                    data.pending_updates.push_back(ClientUpdate::ItemUpdate(id.clone(), s_item.clone()));
+                    data.pending_updates_send.send(ClientUpdate::ItemUpdate(id.clone(), s_item.clone()));
                 }
             },
             None => for (user, data) in self.auth_sessions.iter_mut() {
-                data.pending_updates.push_back(ClientUpdate::ItemUpdate(id.clone(), s_item.clone()));
+                data.pending_updates_send.send(ClientUpdate::ItemUpdate(id.clone(), s_item.clone()));
             }
         }
         response_sender.send(res)
     }
     fn handle_new_auth_key(&mut self, response_sender:Sender<DatabaseReply>) -> Result<(), SendError<DatabaseReply>> {
         let new_auth = self.auth_sessions_rng.next_u64().to_string();
-        self.auth_sessions.insert(new_auth.clone(), ClientSessionData { pending_updates: VecDeque::with_capacity(128) });
+        let (send, recv) = channel();
+        self.auth_sessions.insert(new_auth.clone(), ClientSessionData { pending_updates_send: send, pending_updates_recv:recv });
         response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::NewAuth(new_auth)})
     }
     fn handle_auth_verification(&mut self, auth:String, response_sender:Sender<DatabaseReply>) -> Result<(), SendError<DatabaseReply>> {
@@ -938,9 +964,10 @@ impl DatabaseHandler {
                 ) })
             },
             DatabaseInfoRequest::UnknownUpdates { access_key } => {
-                response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::Info(
+                panic!("UnknownUpdates can't reach here")
+                /*response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::Info(
                 DatabaseInfoReply::UnknownUpdates { updates: self.auth_sessions.get_mut(&access_key).unwrap().pending_updates.drain(..).collect() }
-                ) })
+                ) })*/
             }
         }
     }
@@ -983,7 +1010,7 @@ impl DatabaseHandler {
                     chat.context = new_context;
                     chat.latest_message = Utc::now();
                     for (user, data) in self.auth_sessions.iter_mut() {
-                        data.pending_updates.push_back(ClientUpdate::ItemUpdate(DatabaseItemID::Chat(chat_id), DatabaseItem::Chat(chat.clone())));
+                        data.pending_updates_send.send(ClientUpdate::ItemUpdate(DatabaseItemID::Chat(chat_id), DatabaseItem::Chat(chat.clone())));
                     }
                 });
 
@@ -996,45 +1023,58 @@ impl DatabaseHandler {
         match auth_key {
             Some(key) => for (user, data) in self.auth_sessions.iter_mut() {
                 if user != &key {
-                    data.pending_updates.push_back(ClientUpdate::ItemRemoval(id));
+                    data.pending_updates_send.send(ClientUpdate::ItemRemoval(id));
                 }
             },
             None => for (user, data) in self.auth_sessions.iter_mut() {
-                data.pending_updates.push_back(ClientUpdate::ItemRemoval(id));
+                data.pending_updates_send.send(ClientUpdate::ItemRemoval(id));
             }
         }
         response_sender.send(self.database.remove_request(id))
     }
 
-    fn handle_request(&mut self, request:DatabaseRequest) -> Result<(), SendError<DatabaseReply>> {
-        match request.variant {
-            DatabaseRequestVariant::Get(id) => self.handle_get_request(id, request.response_sender),
-            DatabaseRequestVariant::Add(item) => self.handle_add_request(item, request.response_sender, request.auth_key),
-            DatabaseRequestVariant::Update(item) => self.handle_update_request(item, request.response_sender, request.auth_key),
-            DatabaseRequestVariant::Remove(id) => self.handle_remove_request(id, request.response_sender, request.auth_key),
-            DatabaseRequestVariant::NewAuthKey => self.handle_new_auth_key(request.response_sender),
-            DatabaseRequestVariant::VerifyAuthKey(auth) => self.handle_auth_verification(auth, request.response_sender),
-            DatabaseRequestVariant::Info(info_request) => self.handle_info_request(info_request, request.response_sender),
-            DatabaseRequestVariant::GetAgentPrompt(agent_prompt) => self.handle_agent_prompt(agent_prompt, request.response_sender),
-            DatabaseRequestVariant::GetAll => self.handle_getall(request.response_sender),
-            DatabaseRequestVariant::Save => self.handle_save(request.response_sender),
-            DatabaseRequestVariant::ToolRequest(tool_request) => self.handle_tool_request(tool_request, request.response_sender)
+    fn handle_request(&mut self, request:InternalDBReq) -> Result<(), SendError<DatabaseReply>> {
+        match request {
+            InternalDBReq::Database(db_request) => 
+                match db_request.variant {
+                    DatabaseRequestVariant::Get(id) => self.handle_get_request(id, db_request.response_sender),
+                    DatabaseRequestVariant::Add(item) => self.handle_add_request(item, db_request.response_sender, db_request.auth_key),
+                    DatabaseRequestVariant::Update(item) => self.handle_update_request(item, db_request.response_sender, db_request.auth_key),
+                    DatabaseRequestVariant::Remove(id) => self.handle_remove_request(id, db_request.response_sender, db_request.auth_key),
+                    DatabaseRequestVariant::NewAuthKey => self.handle_new_auth_key(db_request.response_sender),
+                    DatabaseRequestVariant::VerifyAuthKey(auth) => self.handle_auth_verification(auth, db_request.response_sender),
+                    DatabaseRequestVariant::Info(info_request) => self.handle_info_request(info_request, db_request.response_sender),
+                    DatabaseRequestVariant::GetAgentPrompt(agent_prompt) => self.handle_agent_prompt(agent_prompt, db_request.response_sender),
+                    DatabaseRequestVariant::GetAll => self.handle_getall(db_request.response_sender),
+                    DatabaseRequestVariant::Save => self.handle_save(db_request.response_sender),
+                    DatabaseRequestVariant::ToolRequest(tool_request) => self.handle_tool_request(tool_request, db_request.response_sender)
 
+                },
+            InternalDBReq::Tunnel(tunnel_req) => {
+                self.auth_sessions.get(&tunnel_req.auth_key).map(|auth_session| {
+                    tunnel_req.response_sender.send(auth_session.pending_updates_recv.clone()).unwrap();
+                });
+                Ok(())
+            }
         }
+        
     }
 }
 #[derive(Clone)]
 pub struct DatabaseSender {
-    prio_queue:Sender<DatabaseRequest>,
-    normal_queue:Sender<DatabaseRequest>
+    prio_queue:Sender<InternalDBReq>,
+    normal_queue:Sender<InternalDBReq>,
 }
 
 impl DatabaseSender {
     pub fn send_normal(&self, req:DatabaseRequest) {
-        self.normal_queue.send(req);
+        self.normal_queue.send(InternalDBReq::Database(req));
     }
     pub fn send_prio(&self, req:DatabaseRequest) {
-        self.prio_queue.send(req);
+        self.prio_queue.send(InternalDBReq::Database(req));
+    }
+    pub fn send_prio_tunnel(&self, req:TunnelRequest) {
+        self.prio_queue.send(InternalDBReq::Tunnel(req));
     }
 }
 
