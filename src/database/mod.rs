@@ -29,6 +29,7 @@ pub mod configuration;
 pub mod media;
 pub mod memories;
 pub mod notifications;
+pub mod jobs;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProxDatabase {

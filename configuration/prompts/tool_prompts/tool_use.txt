@@ -9,7 +9,9 @@ To provide a final answer, put it between <response>{your answer here}</response
 
 The user's prompts will be contained within <user_prompt>{the user's prompt here}</user_prompt> tags to avoid confusion.
 
-Tool output for all calls in a given turn will be put between <tool_outputs>{tool outputs here}</tool_outputs> tags
+Tool calls are done between <call>{tool call here}</call> tags
+
+Tool output for all calls in a given turn will be put between <outputs>{tool results here}</outputs> tags
 
 Tool output will be given to you by the system once you end your turn after making complete tool calls, you do not need to provide any of them
 
@@ -31,7 +33,7 @@ Tool calling inside of <think></think> tags will be ignored, and a tool call wor
 </ToolCalling>
 
 <ToolOutput>
-All tool outputs and errors for a given turn will given to you be within <tool_outputs>{tool outputs here}</tool_outputs> tags, and each one of them will look like this :
+All tool outputs and errors for a given turn will given to you be within <outputs></outputs> tags, and each one of them will look like this :
 
 <output>
 <tool>
@@ -50,7 +52,7 @@ Tool outputs will be given to you after you make calls and end your turn
 </ToolOutput>
 
 <ToolErrors>
-Some tool calls may provoke errors, they will be within the <tool_outputs>{tool outputs here}</tool_outputs> tags, and each one will look like this : 
+Some tool calls may provoke errors, they will be within the <outputs></outputs> tags, and each one will look like this : 
 
 <error>
 <tool>
