@@ -3,7 +3,7 @@
 use std::{path::PathBuf, sync::{mpmc::channel, Arc}};
 
 use actix_web::{web::Data, App, HttpServer};
-use proxima_backend::ai_interaction::{launch_ai_endpoint_thread, tools::RuntimeToolData};
+use proxima_backend::{ai_interaction::{launch_ai_endpoint_thread, tools::RuntimeToolData}, database::jobs::job_thread};
 use proxima_backend::database::{launch_database_thread, launch_saving_thread};
 use proxima_backend::initialization::initialize;
 use proxima_backend::proxima_handler::ProximaHandler;
@@ -25,11 +25,12 @@ async fn main() {
     let initialization_data = initialize();
     dbg!(initialization_data.clone());
     let database = proxima_backend::database::ProxDatabase::new(initialization_data.username, initialization_data.password_hash, initialization_data.proxima_path.clone());
-    let database_sender = launch_database_thread(database);
+    let (database_sender, jobs_recv) = launch_database_thread(database);
     launch_saving_thread(database_sender.clone(), std::time::Duration::from_millis(60_000));
     let p1 = channel();
     let p2 = channel();
     let (endpoint_sender, handle) = launch_ai_endpoint_thread::<OpenAIFullBackend>((initialization_data.backend_url, ApiKey::from("AAAAA"), ChosenModel::from("RARA")), database_sender.clone(), p1.0, p1.1, p2.0, p2.1, RuntimeToolData::new(initialization_data.searxng_server, initialization_data.python_server)).await;
+    job_thread(jobs_recv, database_sender.clone(), endpoint_sender.clone());
     let handler = Arc::new(ProximaHandler {ai_endpoint:endpoint_sender, database:database_sender, proxima_data_path:initialization_data.proxima_path});
     let server = HttpServer::new(move || {
         App::new()

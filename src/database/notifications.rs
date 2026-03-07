@@ -10,7 +10,8 @@ pub type NotificationID = usize;
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum NotificationReason {
     ChatRoundFinished,
-    Reminder
+    Reminder,
+    Checklist(Vec<String>)
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]

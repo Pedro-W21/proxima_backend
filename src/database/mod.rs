@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use tags::{Tag, TagID, Tags};
 use user::{PersonalInformation, UserData};
 
-use crate::{ai_interaction::create_prompt::{AgentPrompt, get_agent_prompt_context}, database::{configuration::{ChatConfigID, ChatConfiguration, ChatConfigurations}, context::WholeContext, loading_saving::{load_from_disk, save_to_disk}, media::{Media, MediaHash, MediaStorage}, memories::{Memories, Memory, MemoryID, MemoryRequest}, notifications::{Notification, NotificationID, Notifications}}};
+use crate::{ai_interaction::create_prompt::{AgentPrompt, get_agent_prompt_context}, database::{configuration::{ChatConfigID, ChatConfiguration, ChatConfigurations}, context::WholeContext, jobs::{Job, JobID, Jobs}, loading_saving::{load_from_disk, save_to_disk}, media::{Media, MediaHash, MediaStorage}, memories::{Memories, Memory, MemoryID, MemoryRequest}, notifications::{Notification, NotificationID, Notifications}, user::UserStats}};
 
 pub mod tags;
 pub mod folders;
@@ -44,7 +44,8 @@ pub struct ProxDatabase {
     pub configs:ChatConfigurations,
     pub media:MediaStorage,
     pub memories:Memories,
-    pub notifications:Notifications
+    pub notifications:Notifications,
+    pub jobs:Jobs,
 }
 
 impl ProxDatabase {
@@ -60,9 +61,10 @@ impl ProxDatabase {
         configs:ChatConfigurations,
         media:MediaStorage,
         memories:Memories,
-        notifications:Notifications
+        notifications:Notifications,
+        jobs:Jobs
     ) -> Self {
-        Self { files, folders, chats, tags, personal_info, database_folder, devices, access_modes, configs, media, memories, notifications }
+        Self { files, folders, chats, tags, personal_info, database_folder, devices, access_modes, configs, media, memories, notifications, jobs }
     }
     pub fn new(pseudonym:String, password_hash:String, database_folder:PathBuf) -> Self {
         if create_or_repair_database_folder_structure(database_folder.clone()) {
@@ -72,11 +74,11 @@ impl ProxDatabase {
             data
         }
         else {
-            Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder, chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new(), notifications:Notifications::new() }
+            Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder, chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new(), notifications:Notifications::new(), jobs:Jobs::new() }
         }
     }
     pub fn new_just_data(pseudonym:String, password_hash:String) -> ProxDatabase {
-        Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder:PathBuf::from("a/a/a/a/a/a/a/a"), chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new(), notifications:Notifications::new() }
+        Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder:PathBuf::from("a/a/a/a/a/a/a/a"), chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new(), notifications:Notifications::new(), jobs:Jobs::new() }
     }
     pub fn add_desc_and_tags(&mut self, desc_type:DescriptionTarget, desc:Description, tags:HashSet<TagID>) {
         match desc_type {
@@ -426,6 +428,10 @@ impl ProxDatabase {
                 self.personal_info.user_data = user_data;
                 true
             },
+            DatabaseItem::UserStats(user_stats) => {
+                self.personal_info.user_stats = user_stats;
+                true
+            },
             DatabaseItem::Media(media, data) => {
                 let med = self.media.get_media(&media.hash).unwrap();
                 if med.added_at == media.added_at {
@@ -460,6 +466,22 @@ impl ProxDatabase {
                     },
                     None => {
                         self.notifications.add_notification(notif);
+                        false
+                    }
+                }
+            },
+            DatabaseItem::Job(job) => {
+                match self.jobs.get_job(job.id) {
+                    Some(current_job) => if job.added_at == current_job.added_at {
+                        self.jobs.update_job(job);
+                        true
+                    }
+                    else {
+                        self.jobs.add_job(job);
+                        false
+                    },
+                    None => {
+                        self.jobs.add_job(job);
                         false
                     }
                 }
@@ -500,6 +522,12 @@ impl ProxDatabase {
             },
             DatabaseItem::UserData(user_data) => {
                 self.personal_info.user_data = user_data;
+            },
+            DatabaseItem::UserStats(user_stats) => {
+                self.personal_info.user_stats = user_stats;
+            },
+            DatabaseItem::Job(job) => {
+                self.jobs.update_job(job);
             }
         }
     }
@@ -521,6 +549,13 @@ impl ProxDatabase {
             else {
                 DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(id)) }
             },
+            DatabaseItemID::UserStats => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::UserStats(self.personal_info.user_stats.clone()))},
+            DatabaseItemID::Job(job_id) => if let Some(job) = self.jobs.get_job(job_id) {
+                DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Job(job.clone()))}
+            }
+            else {
+                DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(id)) }
+            }
         }
     }
     pub fn update_request(&mut self, item:DatabaseItem) -> DatabaseReply {
@@ -537,6 +572,8 @@ impl ProxDatabase {
             DatabaseItem::Memory(memory, data) => {self.memories.update_memory(memory.id, data, self.database_folder.clone()); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
             DatabaseItem::Notification(notif) => {self.notifications.insert_notification_raw(notif); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
             DatabaseItem::UserData(user_data) => {self.personal_info.user_data = user_data; DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
+            DatabaseItem::UserStats(user_stats) => {self.personal_info.user_stats = user_stats; DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
+            DatabaseItem::Job(job) => {self.jobs.update_job(job); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
         }  
     }
     pub fn add_request(&mut self, item:DatabaseItem) -> (DatabaseReply, DatabaseItemID) {
@@ -551,13 +588,19 @@ impl ProxDatabase {
             DatabaseItem::Media(media, data) => {let id = self.media.add_media(data, media.tags, media.access_modes, media.file_name, self.database_folder.clone(), media.media_type); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Media(id)) }, DatabaseItemID::Media(id))},
             DatabaseItem::Memory(memory, data) => {let id = self.memories.add_memory(data, memory.access_modes, memory.tags, self.database_folder.clone()); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Memory(id)) }, DatabaseItemID::Memory(id))},
             DatabaseItem::UserData(user_data) => {self.personal_info.user_data = user_data; (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::UserData) }, DatabaseItemID::UserData)},
-            DatabaseItem::Notification(notif) => {let id = self.notifications.add_notification(notif); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Notification(id)) }, DatabaseItemID::Notification(id))}
+            DatabaseItem::UserStats(user_stats) => {self.personal_info.user_stats = user_stats; (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::UserStats) }, DatabaseItemID::UserStats)},
+            DatabaseItem::Notification(notif) => {let id = self.notifications.add_notification(notif); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Notification(id)) }, DatabaseItemID::Notification(id))},
+            DatabaseItem::Job(job) => {let id = self.jobs.add_job(job); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Job(id)) }, DatabaseItemID::Job(id))}
         }
     }
     pub fn remove_request(&mut self, id:DatabaseItemID) -> DatabaseReply {
         match id {
             DatabaseItemID::Notification(notif) => {
                 self.notifications.remove_notification(notif);
+                DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }
+            },
+            DatabaseItemID::Job(job) => {
+                self.jobs.remove_job(job);
                 DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }
             },
             _ => DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotDeletable(id)) }
@@ -573,6 +616,8 @@ pub enum DatabaseItem {
     Tag(Tag),
     AccessMode(AccessMode),
     UserData(UserData),
+    UserStats(UserStats),
+    Job(Job),
     ChatConfig(ChatConfiguration),
     Media(Media, Vec<u8>),
     Memory(Memory, String),
@@ -590,9 +635,11 @@ impl DatabaseItem {
             Self::Tag(tag) => DatabaseItemID::Tag(tag.get_id()),
             Self::ChatConfig(config) => DatabaseItemID::ChatConfiguration(config.id),
             Self::UserData(user_data) => DatabaseItemID::UserData,
+            Self::UserStats(user_stats) => DatabaseItemID::UserStats,
             Self::Media(media, _) => DatabaseItemID::Media(media.hash),
             Self::Memory(memory, _) => DatabaseItemID::Memory(memory.id),
-            Self::Notification(notif) => DatabaseItemID::Memory(notif.id)
+            Self::Notification(notif) => DatabaseItemID::Notification(notif.id),
+            Self::Job(job) => DatabaseItemID::Job(job.id)
         }
     }
     
@@ -638,7 +685,12 @@ impl DatabaseItem {
                 DatabaseItemID::Notification(id) => notif.id = id,
                 _ => panic!("wrong kind of ID")
             },
-            Self::UserData(user_data) => ()
+            Self::Job(job) => match new_id {
+                DatabaseItemID::Job(id) => job.id = id,
+                _ => panic!("wrong kind of ID")
+            },
+            Self::UserData(user_data) => (),
+            Self::UserStats(user_stats) => ()
         }
     }
 }
@@ -653,10 +705,12 @@ pub enum DatabaseItemID {
     Tag(TagID),
     AccessMode(AccessModeID),
     UserData,
+    UserStats,
     ChatConfiguration(ChatConfigID),
     Media(MediaHash),
     Memory(MemoryID),
-    Notification(NotificationID)
+    Notification(NotificationID),
+    Job(JobID)
 }
 
 impl Step for DatabaseItemID {
@@ -672,7 +726,9 @@ impl Step for DatabaseItemID {
             DatabaseItemID::Media(media) => 1,
             DatabaseItemID::Memory(id) => *id,
             DatabaseItemID::Notification(id) => *id,
-            DatabaseItemID::UserData => 1
+            DatabaseItemID::Job(id) => *id,
+            DatabaseItemID::UserData => 1,
+            DatabaseItemID::UserStats => 1,
         };
         let end_id = match end {
             DatabaseItemID::AccessMode(id) => *id,
@@ -684,8 +740,10 @@ impl Step for DatabaseItemID {
             DatabaseItemID::ChatConfiguration(id) => *id,
             DatabaseItemID::Memory(id) => *id,
             DatabaseItemID::Notification(id) => *id,
+            DatabaseItemID::Job(id) => *id,
             DatabaseItemID::Media(media) => 0,
-            DatabaseItemID::UserData => 0
+            DatabaseItemID::UserData => 0,
+            DatabaseItemID::UserStats => 0,
         };
         if start_id > end_id {
             (usize::MAX, None)
@@ -705,7 +763,9 @@ impl Step for DatabaseItemID {
             DatabaseItemID::ChatConfiguration(id) => Some(DatabaseItemID::ChatConfiguration(id + 1)),
             DatabaseItemID::Memory(id) => Some(DatabaseItemID::Memory(id + 1)),
             DatabaseItemID::Notification(id) => Some(DatabaseItemID::Notification(id + 1)),
+            DatabaseItemID::Job(id) => Some(DatabaseItemID::Job(id + 1)),
             DatabaseItemID::UserData => None,
+            DatabaseItemID::UserStats => None,
             DatabaseItemID::Media(med) => None
         }
     }
@@ -720,7 +780,9 @@ impl Step for DatabaseItemID {
             DatabaseItemID::ChatConfiguration(id) => Some(DatabaseItemID::ChatConfiguration(id - 1)),
             DatabaseItemID::Memory(id) => Some(DatabaseItemID::Memory(id - 1)),
             DatabaseItemID::Notification(id) => Some(DatabaseItemID::Notification(id - 1)),
+            DatabaseItemID::Job(id) => Some(DatabaseItemID::Job(id - 1)),
             DatabaseItemID::UserData => None,
+            DatabaseItemID::UserStats => None,
             DatabaseItemID::Media(med) => None
         }
     }
@@ -750,7 +812,11 @@ pub enum DatabaseRequestVariant {
 #[derive(Clone, Serialize, Deserialize)]
 pub enum ToolRequest {
     MemoryRequest(MemoryRequest),
-    UpdateExistingChatContext(ChatID, WholeContext)
+    UpdateExistingChatContext(ChatID, WholeContext),
+    UpdateChatTitle(ChatID, Option<String>),
+    UpdateChatTags(ChatID, HashSet<TagID>),
+    SearchTagsByAccessModes(HashSet<AccessModeID>),
+    AddTagToAccessMode(AccessModeID, TagID)
 }
 
 pub enum InternalDBReq {
@@ -848,7 +914,8 @@ pub struct DatabaseHandler {
     database:ProxDatabase,
     auth_sessions:HashMap<String, ClientSessionData>,
     auth_sessions_rng:StdRng,
-    changed_since_last_save:bool
+    changed_since_last_save:bool,
+    jobs_sender:std::sync::mpsc::Sender<Job>
 }
 
 static LOCAL_AUTHKEY:LazyLock<String> = LazyLock::new(|| {
@@ -858,8 +925,8 @@ static LOCAL_AUTHKEY:LazyLock<String> = LazyLock::new(|| {
 
 
 impl DatabaseHandler {
-    pub fn new(priority_request_rcv:Receiver<InternalDBReq>, request_rcv:Receiver<InternalDBReq>, database:ProxDatabase) -> Self {
-        Self { priority_request_rcv, request_rcv, database, auth_sessions:HashMap::with_capacity(32), auth_sessions_rng:StdRng::from_os_rng(), changed_since_last_save:true }
+    pub fn new(priority_request_rcv:Receiver<InternalDBReq>, request_rcv:Receiver<InternalDBReq>, database:ProxDatabase, jobs_sender:std::sync::mpsc::Sender<Job>) -> Self {
+        Self { priority_request_rcv, request_rcv, database, auth_sessions:HashMap::with_capacity(32), auth_sessions_rng:StdRng::from_os_rng(), changed_since_last_save:true, jobs_sender }
     }
     pub fn handling_loop(&mut self) {
         loop {
@@ -918,6 +985,10 @@ impl DatabaseHandler {
             None => for (user, data) in self.auth_sessions.iter_mut() {
                 data.pending_updates_send.send(ClientUpdate::ItemUpdate(id.clone(), s_item.clone()));
             }
+        }
+        match s_item.clone() {
+            DatabaseItem::Job(job) => {self.jobs_sender.send(job).unwrap();}
+            _ => ()
         }
         response_sender.send(res)
     }
@@ -1016,6 +1087,50 @@ impl DatabaseHandler {
                 });
 
                 response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted})
+            },
+            ToolRequest::UpdateChatTitle(chat_id, new_title) => {
+                self.database.chats.get_chats_mut().get_mut(&chat_id).map(|chat| {
+                    chat.chat_title = new_title;
+                    chat.latest_message = Utc::now();
+                    for (user, data) in self.auth_sessions.iter_mut() {
+                        data.pending_updates_send.send(ClientUpdate::ItemUpdate(DatabaseItemID::Chat(chat_id), DatabaseItem::Chat(chat.clone())));
+                    }
+                });
+
+                response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted})
+            },
+            ToolRequest::SearchTagsByAccessModes(access_modes) => {
+                let mut tags = Vec::with_capacity(128); 
+                for mode in access_modes {
+                    self.database.access_modes.get_modes()[mode].tags.iter().for_each(|tag_id| {
+                        self.database.tags.get_tag_from_tagid(*tag_id).map(|tag| {
+                            tags.push(DatabaseItem::Tag(tag.clone()));
+                        });
+                    });
+                }
+                
+                response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedManyItems(tags)})
+            } ,
+            ToolRequest::AddTagToAccessMode(access_mode_id, tag_id) => {
+                self.database.access_modes.get_modes_mut().get_mut(access_mode_id).map(|access_mode| {
+                    access_mode.tags.insert(tag_id);
+                    for (user, data) in self.auth_sessions.iter_mut() {
+                        data.pending_updates_send.send(ClientUpdate::ItemUpdate(DatabaseItemID::AccessMode(access_mode_id), DatabaseItem::AccessMode(access_mode.clone())));
+                    }
+                });
+                
+                
+                response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted})
+            },
+            ToolRequest::UpdateChatTags(chat_id, tags) => {
+                self.database.chats.get_chats_mut().get_mut(&chat_id).map(|chat| {
+                    chat.tags = tags;
+                    for (user, data) in self.auth_sessions.iter_mut() {
+                        data.pending_updates_send.send(ClientUpdate::ItemUpdate(DatabaseItemID::Chat(chat_id), DatabaseItem::Chat(chat.clone())));
+                    }
+                });
+
+                response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted})
             }
         }
     }
@@ -1079,13 +1194,14 @@ impl DatabaseSender {
     }
 }
 
-pub fn launch_database_thread(database:ProxDatabase) -> DatabaseSender {
+pub fn launch_database_thread(database:ProxDatabase) -> (DatabaseSender, std::sync::mpsc::Receiver<Job>) {
     let (prio_send, prio_rcv) = channel();
     let (normal_send, normal_rcv) = channel();
+    let (job_send, job_recv) = std::sync::mpsc::channel();
     thread::spawn(move || {
-        DatabaseHandler::new(prio_rcv, normal_rcv, database).handling_loop();
+        DatabaseHandler::new(prio_rcv, normal_rcv, database, job_send).handling_loop();
     });
-    DatabaseSender { prio_queue:prio_send, normal_queue:normal_send }
+    (DatabaseSender { prio_queue:prio_send, normal_queue:normal_send }, job_recv)
 }
 
 pub fn launch_saving_thread(sender:DatabaseSender, timer:Duration) {

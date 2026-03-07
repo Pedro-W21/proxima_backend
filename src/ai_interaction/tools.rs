@@ -777,7 +777,7 @@ fn parse_retrieval_date(input:String) -> Result<(DateTime<Utc>, DateTime<Utc>), 
                     let to_split = split[1].split(':').collect::<Vec<&str>>();
                     if to_split.len() == 2 {
                         match NaiveDate::from_str(to_split[1]) {
-                            Ok(to) => Ok((start_time, to.and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap()).and_utc())),
+                            Ok(to) => Ok((start_time, to.and_time(NaiveTime::from_hms_opt(23, 59, 59).unwrap()).and_utc())),
                             Err(error) => Err(ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: split[0].to_string(), issue: format!("Should be in the to:YYYY-MM-DD format, error {error}") }))
                         }
                     }

@@ -56,6 +56,9 @@ impl ContextPart {
             }
         }).collect()
     }
+    pub fn data_to_single_text(&self) -> String {
+        self.data_to_text().concat()
+    }
     pub fn concatenate_text(&mut self) {
         let mut new_data = Vec::with_capacity(self.data.len());
         let mut current_string = String::new();
