@@ -46,6 +46,9 @@ impl<B:BackendAPI> RequestHandler<B> {
                         let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Add(DatabaseItem::Notification(Notification::new(Some(DatabaseItemID::Chat(id)), HashSet::from([0, access_mode]), NotificationReason::ChatRoundFinished, None))), None);
                         self.database_sender.send_prio(db_req);
                         let reply = bad_async_recv(db_recv).await;
+                        let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Add(DatabaseItem::Job(Job::new(JobTiming::ASAP, JobRepeat::No, JobType::Title(id), None, HashSet::from([0, access_mode])))), None);
+                        self.database_sender.send_prio(db_req);
+                        let reply = bad_async_recv(db_recv).await;
                         let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Add(DatabaseItem::Job(Job::new(JobTiming::ASAP, JobRepeat::No, JobType::Tag(DatabaseItemID::Chat(id)), None, HashSet::from([0, access_mode])))), None);
                         self.database_sender.send_prio(db_req);
                         let reply = bad_async_recv(db_recv).await;

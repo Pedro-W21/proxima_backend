@@ -324,16 +324,29 @@ pub fn schedule_job<'a>(scheduled_job:&mut Option<usize>, database_sender:Databa
     database_sender.send_prio(db_req);
     let mut scheduled_time = Utc::now().checked_add_days(Days::new(1)).unwrap();
     if let Ok(DatabaseReply { variant:DatabaseReplyVariant::ReturnedItem(DatabaseItem::UserStats(mut user_stats)) }) = db_recv.recv() {
-        
-        for (i, job) in jobs.iter().enumerate() {
-            match scheduled_job {
-                Some(scheduled) => if jobs[*scheduled].schedule(&mut user_stats) > job.schedule(&mut user_stats) {
-                    *scheduled = i;
-                    scheduled_time = job.schedule(&mut user_stats);
-                },
-                None => *scheduled_job = Some(i)
+        if jobs.len() > 0 {
+            println!("[jobs] jobs to schedule, computing which goes first");
+            for (i, job) in jobs.iter().enumerate() {
+                match scheduled_job {
+                    Some(scheduled) => if jobs[*scheduled].schedule(&mut user_stats) >= job.schedule(&mut user_stats) {
+                        *scheduled = i;
+                        scheduled_time = job.schedule(&mut user_stats);
+                        println!("[jobs] job {} is scheduled sooner at {}", job.id, scheduled_time);
+                    },
+                    None => {
+                        *scheduled_job = Some(i);
+                        scheduled_time = job.schedule(&mut user_stats);
+                        println!("[jobs] job {} is scheduled at {}", job.id, scheduled_time);
+                    }
+                }
             }
+            scheduled_time = jobs[scheduled_job.unwrap()].schedule(&mut user_stats);
         }
+        else {
+            println!("[jobs] no jobs to schedule, going back to waiting");
+            *scheduled_job = None;
+        }
+        
     }
     scheduled_time
 }
@@ -341,6 +354,7 @@ pub fn schedule_job<'a>(scheduled_job:&mut Option<usize>, database_sender:Databa
 pub fn get_timeout_from_deadline(deadline:DateTime<Utc>) -> Duration {
     let now = Utc::now();
     let time_delta = deadline.signed_duration_since(now);
+    println!("[jobs] time delta for timeout : {}", time_delta);
     if time_delta.num_seconds() > 0 {
         Duration::from_secs(time_delta.num_seconds() as u64)
     }
@@ -357,23 +371,28 @@ pub fn job_thread(job_receiver:Receiver<Job>, database_sender:DatabaseSender, ai
         loop {
             match job_receiver.recv_timeout(get_timeout_from_deadline(current_deadline)) {
                 Ok(job) => {
+                    println!("[jobs] Received job from database");
                     jobs.push(job);
                     current_deadline = schedule_job(&mut scheduled_job, database_sender.clone(), &mut jobs);
+                    println!("[jobs] job scheduled for {}", current_deadline);
                 },
                 Err(error) => match error {
                     RecvTimeoutError::Disconnected => break,
                     RecvTimeoutError::Timeout => match scheduled_job {
                         Some(job) => {
+                            println!("[jobs] job getting executed");
                             match jobs[job].execute(database_sender.clone(), ai_sender.clone()) {
                                 JobExecution::Success { must_reschedule } => if !must_reschedule {
-                                    let (db_req, db_recv) = DatabaseRequest::new(super::DatabaseRequestVariant::Remove(DatabaseItemID::Job(job)), None);
+                                    let (db_req, db_recv) = DatabaseRequest::new(super::DatabaseRequestVariant::Remove(DatabaseItemID::Job(jobs[job].id)), None);
                                     database_sender.send_prio(db_req);
                                     jobs.remove(job);
+                                    scheduled_job = None;
                                 },
                                 JobExecution::Failure { must_reschedule  } => if !must_reschedule {
-                                    let (db_req, db_recv) = DatabaseRequest::new(super::DatabaseRequestVariant::Remove(DatabaseItemID::Job(job)), None);
+                                    let (db_req, db_recv) = DatabaseRequest::new(super::DatabaseRequestVariant::Remove(DatabaseItemID::Job(jobs[job].id)), None);
                                     database_sender.send_prio(db_req);
                                     jobs.remove(job);
+                                    scheduled_job = None;
                                 },
                             }
                             current_deadline = schedule_job(&mut scheduled_job, database_sender.clone(), &jobs);
@@ -397,9 +416,10 @@ impl Jobs {
     pub fn new() -> Self {
         Self { jobs: HashMap::with_capacity(64), latest_job_id: 0 }
     }
-    pub fn add_job(&mut self, job:Job) -> usize {
+    pub fn add_job(&mut self, mut job:Job) -> usize {
         let id = self.latest_job_id;
         self.latest_job_id += 1;
+        job.id = id;
         self.jobs.insert(id, job);
         id
     }

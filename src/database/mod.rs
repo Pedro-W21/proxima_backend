@@ -600,6 +600,7 @@ impl ProxDatabase {
                 DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }
             },
             DatabaseItemID::Job(job) => {
+                println!("[database] removing job {job}");
                 self.jobs.remove_job(job);
                 DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }
             },
@@ -929,6 +930,9 @@ impl DatabaseHandler {
         Self { priority_request_rcv, request_rcv, database, auth_sessions:HashMap::with_capacity(32), auth_sessions_rng:StdRng::from_os_rng(), changed_since_last_save:true, jobs_sender }
     }
     pub fn handling_loop(&mut self) {
+        for (_, job) in &self.database.jobs.jobs {
+            self.jobs_sender.send(job.clone()).unwrap();
+        }
         loop {
             match self.priority_request_rcv.recv_timeout(Duration::from_millis(30_000)) {
                 Ok(request) => {
@@ -987,7 +991,7 @@ impl DatabaseHandler {
             }
         }
         match s_item.clone() {
-            DatabaseItem::Job(job) => {self.jobs_sender.send(job).unwrap();}
+            DatabaseItem::Job(mut job) => if let DatabaseItemID::Job(job_id) = id {job.id = job_id; println!("[database] Sending job to the job thread"); self.jobs_sender.send(job).unwrap();}
             _ => ()
         }
         response_sender.send(res)
