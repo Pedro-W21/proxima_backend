@@ -119,7 +119,10 @@ impl BackendAPI for OpenAIFullBackend {
                 {
                     let request = ChatCompletionStreamRequest::new(model_clone, messages_clones)
                         .max_tokens(config.get_max_response() as i64)
-                        .temperature(config.get_temp() as f64);
+                        .temperature(config.get_temp() as f64)
+                        .presence_penalty(config.get_presence_penalty())
+                        .top_p(config.get_top_p())
+                        .frequency_penalty(config.get_repeat_penalty());
                     client.chat_completion_stream(request).await.unwrap()
                 }
                 None => {
@@ -304,7 +307,10 @@ impl BackendAPI for OpenAIFullBackend {
                 Some(config) => {
                     let request = ChatCompletionRequest::new(model_clone, messages_clones)
                         .max_tokens(config.get_max_response() as i64)
-                        .temperature(config.get_temp() as f64);
+                        .temperature(config.get_temp() as f64)
+                        .presence_penalty(config.get_presence_penalty())
+                        .top_p(config.get_top_p())
+                        .frequency_penalty(config.get_repeat_penalty());
                     client.chat_completion(request).await
                 },
                 None => {

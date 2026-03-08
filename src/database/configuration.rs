@@ -37,6 +37,36 @@ impl ChatConfiguration {
             None => 0.7
         }
     }
+    pub fn get_min_p(&self) -> f64 {
+        match self.raw_settings.iter().find(|setting| {match setting {ChatSetting::MinP(temp) => true, _ => false}}) {
+            Some(setting) => match setting {ChatSetting::MinP(temp) => (*temp as f64/100.0), _ => panic!("Should be MinP, impossible that it isn't")},
+            None => 0.0
+        }
+    }
+    pub fn get_top_p(&self) -> f64 {
+        match self.raw_settings.iter().find(|setting| {match setting {ChatSetting::TopP(temp) => true, _ => false}}) {
+            Some(setting) => match setting {ChatSetting::TopP(temp) => (*temp as f64/100.0), _ => panic!("Should be TopP, impossible that it isn't")},
+            None => 1.0
+        }
+    }
+    pub fn get_repeat_penalty(&self) -> f64 {
+        match self.raw_settings.iter().find(|setting| {match setting {ChatSetting::RepeatPenalty(temp) => true, _ => false}}) {
+            Some(setting) => match setting {ChatSetting::RepeatPenalty(temp) => (*temp as f64/100.0), _ => panic!("Should be Repeat penalty, impossible that it isn't")},
+            None => 1.0
+        }
+    }
+    pub fn get_presence_penalty(&self) -> f64 {
+        match self.raw_settings.iter().find(|setting| {match setting {ChatSetting::PresencePenalty(temp) => true, _ => false}}) {
+            Some(setting) => match setting {ChatSetting::PresencePenalty(temp) => (*temp as f64/100.0), _ => panic!("Should be Presence penalty, impossible that it isn't")},
+            None => 0.0
+        }
+    }
+    pub fn get_top_k(&self) -> u64 {
+        match self.raw_settings.iter().find(|setting| {match setting {ChatSetting::TopK(temp) => true, _ => false}}) {
+            Some(setting) => match setting {ChatSetting::TopK(temp) => *temp, _ => panic!("Should be Top K, impossible that it isn't")},
+            None => 100
+        }
+    }
     pub fn get_max_context(&self) -> usize {
         match self.raw_settings.iter().find(|setting| {match setting {ChatSetting::MaxContextLength(ctx) => true, _ => false}}) {
             Some(setting) => match setting {ChatSetting::MaxContextLength(ctx) => *ctx, _ => panic!("Should be temp, impossible that it isn't")},
@@ -75,6 +105,11 @@ impl ChatConfiguration {
 pub enum ChatSetting {
     SystemPrompt(ContextPart),
     Temperature(u64),
+    TopP(u64),
+    RepeatPenalty(u64),
+    PresencePenalty(u64),
+    TopK(u64),
+    MinP(u64),
     ResponseTokenLimit(usize),
     MaxContextLength(usize),
     AccessMode(AccessModeID),
@@ -101,6 +136,11 @@ impl ChatSetting {
             Self::RepeatedPrePrompt(pre_prompt, _) => format!("repeated pre-prompt"),
             Self::Temperature(temp) => format!("Temperature : {}", *temp as f64/100.0),
             Self::SystemPrompt(system_prompt) => format!("System prompt"),
+            Self::MinP(minp) => format!("Min P : {}", *minp as f64/100.0),
+            Self::PresencePenalty(minp) => format!("Presence penalty : {}", *minp as f64/100.0),
+            Self::RepeatPenalty(minp) => format!("Repeat penalty : {}", *minp as f64/100.0),
+            Self::TopK(minp) => format!("Top K : {}", *minp as f64/100.0),
+            Self::TopP(minp) => format!("Top P : {}", *minp as f64/100.0),
         }
     }
 }
