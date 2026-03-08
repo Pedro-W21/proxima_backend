@@ -553,7 +553,7 @@ fn rng_tool(mode:String, lines:Vec<String>) -> Result<(String, Option<ProximaToo
         "dice" => for line in lines {
             let parts = line.split_whitespace().collect::<Vec<&str>>();
             if parts.len() >= 1 {
-                let dice_size = parts[0].parse::<u64>().map_err(|err| {ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: line.clone(), issue: format!("Dice size is unparseable as positive integer") })})?;
+                let dice_size = parts[0].trim_start_matches("D").parse::<u64>().map_err(|err| {ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: line.clone(), issue: format!("Dice size is unparseable as positive integer") })})?;
                 let dice_roll = rng.random_range(1..=dice_size);
 
                 let label = if parts.len() >= 2 {

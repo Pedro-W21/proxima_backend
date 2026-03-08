@@ -239,10 +239,15 @@ impl Job {
                                 let mut chat_tags = HashSet::with_capacity(16);
                                 for name in tag_names {
                                     if let Some(tag_id) = existing_tag_names.get(&name) {
-                                        chat_tags.insert(*tag_id);
+                                        if chat_tags.len() < 10 {   
+                                            chat_tags.insert(*tag_id);
+                                        }
+                                        else {
+                                            break;
+                                        }
                                     }
-                                    else {
-                                        let new_tag = Tag::new(0, name, Description::new(String::new()), None);
+                                    else if chat_tags.len() < 10 {
+                                        let new_tag = Tag::new(0, name.clone(), Description::new(String::new()), None);
                                         let (db_req, db_recv) = DatabaseRequest::new(super::DatabaseRequestVariant::Add(DatabaseItem::Tag(new_tag)), None);
                                         database_sender.send_prio(db_req);
                                         if let Ok(DatabaseReply { variant:DatabaseReplyVariant::AddedItem(DatabaseItemID::Tag(tag_id)) }) = db_recv.recv() {
@@ -251,7 +256,11 @@ impl Job {
                                                 let (db_req, db_recv) = DatabaseRequest::new(super::DatabaseRequestVariant::ToolRequest(ToolRequest::AddTagToAccessMode(*access_mode, tag_id)), None);
                                                 database_sender.send_prio(db_req);
                                             }
+                                            existing_tag_names.insert(name, tag_id);
                                         }
+                                    }
+                                    else {
+                                        break;
                                     }
                                 }
                                 let (db_req, db_recv) = DatabaseRequest::new(super::DatabaseRequestVariant::ToolRequest(ToolRequest::UpdateChatTags(chat.id, chat_tags)), None);

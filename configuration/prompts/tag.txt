@@ -6,7 +6,7 @@ Existing tags will be provided within <existing_tags></existing tags> XML tags
 
 in order to give the conversation tags, put them between <conversation_tags></conversation_tags> XML tags in your response
 
-You can assign as many tags as you want to a conversation, at one per line in their section. A tag can be any string of characters fitting on one line, but they should be kept short, diverse and to the point for future reuse
+You can assign at most 10 tags to a conversation, at one per line in their section. any extra tags beyond the first 10 will be ignored. A tag can be any string of characters fitting on one line, but they should be kept short, diverse and to the point for future reuse
 Tags not present in <existing_tags></existing_tags> will be created as you specify them
 
 For example, for the following conversation :
