@@ -3,7 +3,7 @@ use std::{collections::HashSet, sync::{mpmc::{self, Receiver, Sender, channel}, 
 use backend_api::BackendAPI;
 use endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponse, EndpointResponseVariant};
 
-use crate::{ai_interaction::{backend_api::BackendError, tools::{RuntimeToolData, bad_async_recv, handle_tool_calling_response, is_valid_tool_calling_response, looks_like_nonstandard_final_response}}, database::{DatabaseItem, DatabaseItemID, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, access_modes::AccessModeID, chats::{ChatID, SessionType}, context::{ContextData, ContextPart, ContextPosition, WholeContext}, jobs::{Job, JobRepeat, JobTiming, JobType}, notifications::{Notification, NotificationReason}}};
+use crate::{ai_interaction::{backend_api::BackendError, tools::{RuntimeToolData, bad_async_recv, handle_tool_calling_response, is_valid_tool_calling_response, looks_like_nonstandard_final_response}}, database::{DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, access_modes::AccessModeID, chats::{ChatID, SessionType}, context::{ContextData, ContextPart, ContextPosition, WholeContext}, jobs::{Job, JobRepeat, JobTiming, JobType}, notifications::{Notification, NotificationReason}}};
 
 use crate::ai_interaction::endpoint_api::EndpointError;
 pub mod endpoint_api;
@@ -46,12 +46,20 @@ impl<B:BackendAPI> RequestHandler<B> {
                         let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Add(DatabaseItem::Notification(Notification::new(Some(DatabaseItemID::Chat(id)), HashSet::from([0, access_mode]), NotificationReason::ChatRoundFinished, None))), None);
                         self.database_sender.send_prio(db_req);
                         let reply = bad_async_recv(db_recv).await;
-                        let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Add(DatabaseItem::Job(Job::new(JobTiming::ASAP, JobRepeat::No, JobType::Title(id), None, HashSet::from([0, access_mode])))), None);
+                        let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Get(DatabaseItemID::Chat(id)), None);
                         self.database_sender.send_prio(db_req);
-                        let reply = bad_async_recv(db_recv).await;
-                        let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Add(DatabaseItem::Job(Job::new(JobTiming::ASAP, JobRepeat::No, JobType::Tag(DatabaseItemID::Chat(id)), None, HashSet::from([0, access_mode])))), None);
-                        self.database_sender.send_prio(db_req);
-                        let reply = bad_async_recv(db_recv).await;
+                        if let DatabaseReply { variant:DatabaseReplyVariant::ReturnedItem(DatabaseItem::Chat(chat)) } = bad_async_recv(db_recv).await {
+                            if chat.get_title().is_some() {
+                                let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Add(DatabaseItem::Job(Job::new(JobTiming::ASAP, JobRepeat::No, JobType::Title(id), None, HashSet::from([0, access_mode])))), None);
+                                self.database_sender.send_prio(db_req);
+                                let reply = bad_async_recv(db_recv).await;
+                            }
+                            if chat.tags.len() > 0 {
+                                let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Add(DatabaseItem::Job(Job::new(JobTiming::ASAP, JobRepeat::No, JobType::Tag(DatabaseItemID::Chat(id)), None, HashSet::from([0, access_mode])))), None);
+                                self.database_sender.send_prio(db_req);
+                                let reply = bad_async_recv(db_recv).await;
+                            }
+                        }
                     },
                     _ => println!("[AI request handler] chat update failed")
                 } 
