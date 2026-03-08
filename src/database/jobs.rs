@@ -125,7 +125,10 @@ impl Job {
                         );
                         ai_endpoint.send_prio(ai_request);
                         if let Ok(EndpointResponse { variant:EndpointResponseVariant::Block(response) }) = ai_recv.recv() {
-                            let str = response.data_to_single_text();
+                            let mut str = response.data_to_single_text();
+                            if !str.contains("</conversation_title>") {
+                                str += "\n</conversation_title>"
+                            }
                             if let Ok(dom) = Dom::parse(&str) && dom.children.len() > 0 {
                                 for child in dom.children {
                                     if let Some(element) = child.element() && element.name == "conversation_title" && let Some(Node::Text(title)) = element.children.get(0) && title.len() > 3 {
@@ -211,7 +214,10 @@ impl Job {
                                     );
                                     ai_endpoint.send_prio(ai_request);
                                     if let Ok(EndpointResponse { variant:EndpointResponseVariant::Block(response) }) = ai_recv.recv() {
-                                        let str = response.data_to_single_text();
+                                        let mut str = response.data_to_single_text();
+                                        if !str.contains("</conversation_tags>") {
+                                            str += "\n</conversation_tags>"
+                                        }
                                         if let Ok(dom) = Dom::parse(&str) && dom.children.len() > 0 {
                                             for child in dom.children {
                                                 if let Some(element) = child.element() && element.name == "conversation_tags" && let Some(Node::Text(tags_str)) = element.children.get(0) && tags_str.len() > 3 {
