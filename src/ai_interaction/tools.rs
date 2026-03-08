@@ -1,11 +1,11 @@
-use std::{cmp::Ordering, collections::{HashMap, HashSet}, io::{Read, Write}, net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream}, str::FromStr, sync::{mpmc::Receiver, mpsc::RecvTimeoutError}, time::Duration};
+use std::{cmp::Ordering, collections::{HashMap, HashSet}, io::{Read, Write}, net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream}, num::{NonZeroU32, NonZeroUsize}, str::FromStr, sync::{mpmc::Receiver, mpsc::RecvTimeoutError}, time::Duration};
 
-use chrono::{Date, DateTime, Days, Months, NaiveDate, NaiveTime, Utc};
+use chrono::{Date, DateTime, Days, Months, NaiveDate, NaiveTime, TimeDelta, Timelike, Utc};
 use html_parser::{Dom, Element, Node};
 use rand::{Rng, rng};
 use serde::{Deserialize, Serialize};
 
-use crate::{ai_interaction::{AiEndpointSender, endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}}, database::{DatabaseItem, DatabaseItemID, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, ToolRequest, access_modes::AccessModeID, chats::{Chat, SessionType}, configuration::{ChatConfiguration, ChatSetting}, context::{ContextData, ContextPart, ContextPosition, WholeContext}, memories::{Memory, MemoryRequest}}};
+use crate::{ai_interaction::{AiEndpointSender, endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}}, database::{DatabaseError, DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, ToolRequest, access_modes::AccessModeID, chats::{Chat, SessionType}, configuration::{ChatConfiguration, ChatSetting}, context::{ContextData, ContextPart, ContextPosition, WholeContext}, jobs::{Job, JobID, JobRepeat, JobTiming, JobType}, memories::{Memory, MemoryRequest}}};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Tools {
@@ -157,6 +157,7 @@ pub enum ProximaTool {
     Agent,
     Rng,
     Memory,
+    Jobs,
 }
 
 impl ProximaTool {
@@ -169,6 +170,7 @@ impl ProximaTool {
             Self::Agent => false,
             Self::Rng => false,
             Self::Memory => false,
+            Self::Jobs => false,
         }
     }
     pub fn is_valid_action(&self, action:&String) -> bool {
@@ -200,6 +202,10 @@ impl ProximaTool {
             Self::Memory => match action.trim() {
                 "retrieve" | "record" => true,
                 _ => false,
+            },
+            Self::Jobs => match action.trim() {
+                "list" | "remove" | "create" | "modify" => true,
+                _ => false
             }
         }
     }
@@ -212,6 +218,7 @@ impl ProximaTool {
             Self::Agent => "Running and keeping tabs on autonomous AI agents".to_string(),
             Self::Rng => "Random number generation".to_string(),
             Self::Memory => "Long term, cross-session dated memory storage and retrieval".to_string(),
+            Self::Jobs => "Creation of tasks to be executed in the future like reminders or agent heartbeats".to_string(),
         }
     }
     pub fn try_from_string(string:String) -> Option<Self> {
@@ -223,6 +230,7 @@ impl ProximaTool {
             "Agent" => Some(Self::Agent),
             "RNG" => Some(Self::Rng),
             "Memory" => Some(Self::Memory),
+            "Jobs" => Some(Self::Jobs),
             _ => None
         }
     }
@@ -390,6 +398,11 @@ impl ProximaTool {
             Self::Memory => {
                 let (output_str, new_data) = memory_tool(action.to_string(), input, database_connection, access_mode_id).await?;
                 Ok((generate_call_output("Memory".to_string(), action.to_string(), output_str), new_data))
+            },
+            Self::Jobs => {
+                let input_lines:Vec<String> = input.trim().lines().map(|line| {line.trim().to_string()}).collect();
+                let (output_str, new_data) = jobs_tool(action.to_string(), input_lines, database_connection, access_mode_id).await?;
+                Ok((generate_call_output("Jobs".to_string(), action.to_string(), output_str), new_data))
             }
         }
     }
@@ -409,7 +422,8 @@ impl ProximaTool {
                 )
             ),
             Self::Rng => None,
-            Self::Memory => Some(ProximaToolData::Memory { access_mode_id: 0 }),
+            Self::Memory => None,
+            Self::Jobs => None,
         }
     }
     pub fn get_description_string(&self, data:Option<&ProximaToolData>) -> String {
@@ -427,6 +441,7 @@ impl ProximaTool {
             },
             Self::Rng => String::from(include_str!("../../configuration/prompts/tool_prompts/rng.txt")),
             Self::Memory => String::from(include_str!("../../configuration/prompts/tool_prompts/memory.txt")),
+            Self::Jobs => String::from(include_str!("../../configuration/prompts/tool_prompts/jobs.txt")),
         }
     }
     pub fn get_name(&self) -> String {
@@ -437,7 +452,8 @@ impl ProximaTool {
             Self::Python => format!("Python"),
             Self::Agent => format!("Agent"),
             Self::Rng => format!("RNG"),
-            Self::Memory => format!("Memory")
+            Self::Memory => format!("Memory"),
+            Self::Jobs => format!("Jobs")
         }
     }
 }
@@ -827,7 +843,7 @@ async fn memory_tool(mode:String, input:String, database_connection:DatabaseSend
                     else {
                         output = format!("No memories were found for this search query");
                     }
-                    Ok((output, Some(ProximaToolData::Memory { access_mode_id })))   
+                    Ok((output, None))   
                 },
                 _ => Err(ProximaToolCallError::Network(format!("Database couldn't be reached to record the memory")))
             }
@@ -840,7 +856,7 @@ async fn memory_tool(mode:String, input:String, database_connection:DatabaseSend
             match bad_async_recv(db_recv).await.variant {
                 DatabaseReplyVariant::AddedItem(_) => {
                     let timestamp = Utc::now();
-                    Ok((format!("Memory successfully recorded on {timestamp}"), Some(ProximaToolData::Memory { access_mode_id })))   
+                    Ok((format!("Memory successfully recorded on {timestamp}"), None))   
                 },
                 _ => Err(ProximaToolCallError::Network(format!("Database couldn't be reached to record the memory")))
             }
@@ -948,11 +964,163 @@ pub fn python_tool(mode:String, data:String, addr:SocketAddr) -> Result<String, 
     }
 }
 
+async fn jobs_tool(mode:String, input_lines:Vec<String>, database_connection:DatabaseSender, access_mode_id:AccessModeID) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
+    let mut output = String::new();
+    match mode.trim() {
+        "list" => {
+            if input_lines.len() > 0 {
+                let number = input_lines[0].parse::<NonZeroUsize>().map_err(|error| {ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: input_lines[0].clone(), issue: format!("Expression should be a positive integer") })})?;
+                let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::ToolRequest(ToolRequest::GetLastXJobs(number.into(), HashSet::from([access_mode_id]))), None);
+                database_connection.send_prio(db_req);
+                
+                if let DatabaseReply { variant:DatabaseReplyVariant::ReturnedManyItems(jobs) } = bad_async_recv(db_recv).await {
+                    for job in jobs {
+                        if let DatabaseItem::Job(job) = job {
+                            output += &format!("id:{}\ncreated_on:{}\ntiming:{}\nrepeat:{}\ndescription:{}\ntype:{}\n-------",
+                            job.id,
+                            job.added_at,
+                            match job.timing {
+                                JobTiming::ASAP => "ASAP".to_string(),
+                                JobTiming::InDrought { max_timeout } => "drought".to_string(),
+                                JobTiming::OnTime { time  } => format!("precise {}",time)
+                            },
+                            match job.repeat {
+                                JobRepeat::No => "no".to_string(),
+                                JobRepeat::RegularInterval(interval) => format!("regular {interval}"),
+                                JobRepeat::RegularTimeOfDay(time) => format!("everyday {time}")
+                            },
+                            match job.description {
+                                Some(desc) => format!("{desc}"),
+                                None => format!("No description")
+                            },
+                            match job.job_type {
+                                JobType::Reminder => "reminder",
+                                JobType::Check(_) => "checklist",
+                                JobType::Tag(_) => "tagging existing chat",
+                                JobType::Title(_) => "titling existing chat",
+                                _ => "unsupported job type"
+                            }
+                        );
+                        }
+                    }
+                    Ok((output, None))
+                }
+                else {
+                    Err(ProximaToolCallError::Network(format!("Database unreachable")))
+                }
+            }
+            else {
+                Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 1, found: input_lines.len(), remarks: format!("Only provide one argument for the 'list' mode") }))
+            }
+        },
+        "remove" => {
+            if input_lines.len() > 0 {
+                let mut output = String::new();
+                for line in input_lines {
+                    let number = line.trim().parse::<JobID>().map_err(|error| {ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: line.clone(), issue: format!("Expression should be a positive integer") })})?;
+                    let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Remove(DatabaseItemID::Job(number)), None);
+                    database_connection.send_prio(db_req);
+                    match bad_async_recv(db_recv).await.variant {
+                        DatabaseReplyVariant::RequestExecuted => output += &format!("job {number} removed\n"),
+                        DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(_)) => output += &format!("job {number} did not exist\n"),
+                        _ => return Err(ProximaToolCallError::Network(format!("Got bad reply from database"))),
+                    }
+                }
+                Ok((output, None))
+            }
+            else {
+                Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 1, found: input_lines.len(), remarks: format!("provide at least one job ID to remove in the 'remove' mode") }))
+            }
+        },
+        "create" => {
+            create_job_mode(input_lines, database_connection, access_mode_id).await
+        }
+        _ => panic!("Impossible at this stage")
+    }
+}
+
+fn parse_delay(split_line:Vec<&str>) -> Result<TimeDelta, ProximaToolCallError> {
+    if split_line.len() == 3 {
+        if let Ok(x) = split_line[1].parse::<u64>() {
+            match split_line[2] {
+                "minute" | "minutes" => Ok(TimeDelta::minutes(x as i64)),
+                "hour" | "hours" => Ok(TimeDelta::hours(x as i64)),
+                "day" | "days" => Ok(TimeDelta::days(x as i64)),
+                "week" | "weeks" => Ok(TimeDelta::weeks(x as i64)),
+                "month" | "months" => Ok(TimeDelta::weeks(x as i64 * 30)), // both of those are very approximmate
+                "year" | "years" => Ok(TimeDelta::days(x as i64 * 365)),
+                _ => Err(ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: split_line[2].to_string(), issue: format!("You can only set a delay in minutes, hours, days, weeks, months or years") }))
+            }
+        }
+        else {
+            return Err(ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: split_line[1].to_string(), issue: format!("In the precise X Y format, X should be a positive integer") }))
+        }
+    }
+    else {
+        return Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 3, found: split_line.len(), remarks: String::new() }))
+    }
+}
+
+async fn create_job_mode(input_lines:Vec<String>, database_connection:DatabaseSender, access_mode_id:AccessModeID) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
+    if input_lines.len() >= 4 {
+        let timing = match input_lines[0].trim().split_whitespace().next().unwrap() {
+            "ASAP" => JobTiming::ASAP,
+            "drought" => JobTiming::InDrought { max_timeout: TimeDelta::days(2) },
+            "precise" => {
+                let split_line = input_lines[0].trim().split_whitespace().collect::<Vec<&str>>();
+                if input_lines[0].contains(":") {
+                    let date = NaiveDate::from_str(split_line[1]).map_err(|error| {ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: split_line[1].to_string(), issue:format!("{error}") })})?;
+                    let time = NaiveTime::from_str(split_line[2]).map_err(|error| {ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: split_line[2].to_string(), issue:format!("{error}") })})?;
+                    let precise = date.and_time(time).and_utc();
+                    JobTiming::OnTime { time: precise }
+                }
+                else {
+                    let delay = parse_delay(split_line)?;
+                    JobTiming::OnTime { time: Utc::now() + delay }
+                }
+                
+            },
+            _ => return Err(ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: input_lines[0].clone(), issue: format!("first line of job creation must start with one of ASAP, drought or precise") }))
+        };
+        let repeat = match input_lines[1].trim().split_whitespace().next().unwrap() {
+            "no" => JobRepeat::No,
+            "regular" => {
+                let split_line = input_lines[1].trim().split_whitespace().collect::<Vec<&str>>();
+                let delay = parse_delay(split_line)?;
+                JobRepeat::RegularInterval(delay)
+            },
+            "everyday" => {
+                let split_line = input_lines[1].trim().split_whitespace().collect::<Vec<&str>>();
+                let time = NaiveTime::from_str(split_line[1]).map_err(|error| {ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: split_line[1].to_string(), issue:format!("{error}") })})?;
+                JobRepeat::RegularTimeOfDay(TimeDelta::seconds(time.second() as i64) + TimeDelta::hours(time.hour() as i64) + TimeDelta::minutes(time.minute() as i64))
+            },
+            _ => return Err(ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: input_lines[0].clone(), issue: format!("second line of job creation must start with one of no, regular or everyday") }))
+        };
+        let description = Some(input_lines[2].to_string());
+        let job_type = match input_lines[3].trim() {
+            "reminder" => JobType::Reminder,
+            "checklist" => JobType::Check(input_lines[4..].iter().map(|line| {line.clone()}).collect()),
+            _ => return Err(ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: input_lines[0].clone(), issue: format!("fourth line of job creation must start with one of reminder or checklist") }))
+        };
+        let job = Job::new(timing, repeat, job_type, description, HashSet::from([0, access_mode_id]));
+        let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Add(DatabaseItem::Job(job)), None);
+        database_connection.send_prio(db_req);
+        if let DatabaseReply { variant:DatabaseReplyVariant::AddedItem(DatabaseItemID::Job(id)) } = bad_async_recv(db_recv).await {
+            Ok((format!("Job created on {} with ID {}", Utc::now(), id), None))
+        }
+        else {
+            Err(ProximaToolCallError::Network(format!("Database unreachable")))
+        }
+    }
+    else {
+        Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 4, found: input_lines.len(), remarks: format!("The minimum definition of a job is at least 4 lines") }))
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum ProximaToolData {
     LocalMemory(HashMap<String, String>),
     Agent(AgentToolData),
-    Memory {access_mode_id:AccessModeID}
 }
 
 impl ProximaToolData {
@@ -960,7 +1128,6 @@ impl ProximaToolData {
         match self {
             Self::LocalMemory(key_value) => ContextData::Text(format!("<LocalMemory> local memory data : {:?}</LocalMemory>", key_value.clone())),
             Self::Agent(data) => ContextData::Text(format!("")),
-            Self::Memory { access_mode_id } => ContextData::Text(format!("")),
         }
     }
     pub fn get_local_mem_data(&self) -> HashMap<String, String> {
@@ -972,12 +1139,6 @@ impl ProximaToolData {
     pub fn get_agent_tool_data(&self) -> &AgentToolData {
         match self {
             Self::Agent(data) => data,
-            _ => panic!("Not agent tool")
-        }
-    }
-    pub fn get_memory_am_id(&self) -> AccessModeID {
-        match self {
-            Self::Memory { access_mode_id } => *access_mode_id,
             _ => panic!("Not agent tool")
         }
     }

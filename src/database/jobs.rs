@@ -12,11 +12,11 @@ pub type JobID = usize;
 pub struct Job {
     pub added_at:DateTime<Utc>,
     last_executed:Option<DateTime<Utc>>,
-    timing:JobTiming,
-    repeat:JobRepeat,
-    job_type:JobType,
-    description:Option<String>,
-    access_modes:HashSet<AccessModeID>,
+    pub timing:JobTiming,
+    pub repeat:JobRepeat,
+    pub job_type:JobType,
+    pub description:Option<String>,
+    pub access_modes:HashSet<AccessModeID>,
     pub id:JobID
 }
 

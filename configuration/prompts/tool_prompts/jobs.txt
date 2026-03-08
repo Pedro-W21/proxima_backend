@@ -1,0 +1,120 @@
+<ToolDescription>
+
+<ToolName>
+Jobs
+</ToolName>
+
+<ToolUse>
+The Jobs tool lets you create multiple kinds of tasks that will be executed later
+To use this tool, you have 3 modes : 
+- list : simply put the maximum number of jobs to list on the first line of the <in_data></in_data> section, and at most that number of existing jobs and their IDs will be listed in the result :
+
+<call>
+<tool>
+Jobs
+</tool>
+<action>
+list
+</action>
+<in_data>
+10
+</in_data>
+</call>
+
+This action is useful to get an idea of what jobs are currently running, which can be used to modify an applicable job instead of creating a new one, or remove an existing job, for example.
+
+- remove : put a job's ID number on each line of the <in_data></in_data> section and they will be deleted if they exist, here's an example : 
+
+<call>
+<tool>
+Jobs
+</tool>
+<action>
+remove
+</action>
+<in_data>
+1
+5
+3
+18
+</in_data>
+</call>
+
+This action is useful to stop recurring jobs such as repeating reminders once they are no longer needed
+
+- create : create a new job with multiple parameters on each line of the <in_data></in_data> section, the format of the parameters is as follows :
+    - the first parameter is the job's timing, which can be one of 3 types : "ASAP", "drought" or "precise {time/delay}"
+        - "ASAP" executes the job as soon as possible
+        - "drought" executes the job at a time where the user is predicted not to need to interact with you in order to efficiently allocate resources
+        - "precise" executes the job at a time specified on the same line using one of 2 formats :
+            - "precise {time}" where the time is in the format YYYY-MM-DD Hour:Minute:Second
+            - "precise {delay}" where the time is the current time + a delay of the format "X {days/hours/minutes}"
+    - the second parameter is the job's kind of repetition, which is either "no", "regular {delay}" or "everyday {time}"
+        - "no" means no repetition, the job will be executed at most once
+        - "regular {delay}" means it will be repeated from its first execution onwards every {delay}, which is of the format "X {days/hours/minutes}"
+        - "everyday {time}" means it will be repeated every day at the provided {time}, of the format "Hour:Minute:Second"
+    - the third parameter is the job's description, it's a single line of text describing the job
+    - the fourth parameter is the job type, which can be one of 2 types : "reminder" or "checklist"
+        - "reminder" sends a simple notification to the user when it is scheduled, the reason specified will be the job's description
+        - "checklist" sends a notification to the user when it is scheduled that contains a checklist specified in the remaining lines of the <in_data></in_data> section, the user will be able to check off items which will be updated when it is rescheduled
+
+An example of the "create" action is as follows :
+
+<call>
+<tool>
+Jobs
+</tool>
+<action>
+create
+</action>
+<in_data>
+precise 2 hours
+everyday 18:30:00
+Check homework and do it whenever possible
+reminder 
+</in_data>
+</call>
+
+use the Jobs tool whenever you need to perform or stop an action at a later time reliably 
+</ToolUse>
+
+<ToolOutput>
+This tool outputs different data with each mode :
+
+for the "list" mode, the output will contain information about each job listed in a similar format as the one used to create jobs, for example :
+
+<output_data>
+id:15
+created_on:{date}
+timing:drought
+repetition:no
+description:reminder to take out the trash
+type:reminder
+-------
+id:19
+[...]
+</output_data>
+
+for the "remove" mode, it will specify which modes have been successfully removed and which ones did not exist, for the same example :
+
+<output_data>
+job 1 removed
+job 5 removed
+job 3 did not exist
+job 18 removed
+</output_data>
+
+for the "create" mode, it will specify when the job was created and its ID if it was created successfully :
+<output_data>
+job created on {date} with ID 8576
+</output_data>
+
+</ToolOutput>
+
+<ToolErrors>
+Errors will be of 2 main types :
+- bad formatting : when the format of an action is wrong
+- Unreachable database : if the database that stores jobs can't be reached when an action requires it
+</ToolErrors>
+
+</ToolDescription>

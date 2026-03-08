@@ -817,7 +817,8 @@ pub enum ToolRequest {
     UpdateChatTitle(ChatID, Option<String>),
     UpdateChatTags(ChatID, HashSet<TagID>),
     SearchTagsByAccessModes(HashSet<AccessModeID>),
-    AddTagToAccessMode(AccessModeID, TagID)
+    AddTagToAccessMode(AccessModeID, TagID),
+    GetLastXJobs(usize, HashSet<AccessModeID>),
 }
 
 pub enum InternalDBReq {
@@ -1135,6 +1136,20 @@ impl DatabaseHandler {
                 });
 
                 response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted})
+            },
+            ToolRequest::GetLastXJobs(number, access_modes) => {
+                let mut jobs = Vec::with_capacity(number);
+                for job_id in (0..self.database.jobs.latest_job_id).rev() {
+                    if let Some(job) = self.database.jobs.get_job(job_id) && job.access_modes.intersection(&access_modes).count() > 0 {
+                        if jobs.len() < number {
+                            jobs.push(DatabaseItem::Job(job.clone()));
+                        }
+                        else {
+                            break;
+                        }
+                    }
+                }
+                response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedManyItems(jobs)})
             }
         }
     }
