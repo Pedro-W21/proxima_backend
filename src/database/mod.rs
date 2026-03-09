@@ -2,7 +2,7 @@ use std::{collections::{HashMap, HashSet, VecDeque}, iter::Step, path::PathBuf, 
 
 use access_modes::{AccessMode, AccessModeID, AccessModes};
 use chats::{Chat, ChatID, Chats};
-use chrono::Utc;
+use chrono::{DateTime, TimeDelta, Utc};
 use description::{Description, DescriptionTarget};
 use devices::{Device, DeviceID, Devices};
 use files::{FileID, Files, ProxFile};
@@ -902,6 +902,8 @@ pub struct DatabaseReply {
 pub struct ClientSessionData {
     pending_updates_send:Sender<ClientUpdate>,
     pending_updates_recv:Receiver<ClientUpdate>,
+    last_decrease:DateTime<Utc>,
+    last_len:usize,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -964,15 +966,34 @@ impl DatabaseHandler {
         response_sender.send(self.database.get_request(id))
     }
     fn handle_update_request(&mut self, item:DatabaseItem, response_sender:Sender<DatabaseReply>, auth_key:Option<String>) -> Result<(), SendError<DatabaseReply>> {
+        
+        let mut remove_clients = Vec::with_capacity(self.auth_sessions.len());
         match auth_key {
             Some(key) => for (user, data) in self.auth_sessions.iter_mut() {
                 if user != &key {
-                    data.pending_updates_send.send(ClientUpdate::ItemUpdate(item.get_id(), item.clone()));
+                    if data.last_len == data.pending_updates_send.len() && Utc::now().signed_duration_since(data.last_decrease) > TimeDelta::days(3) {
+                        remove_clients.push(user.clone());
+                    }
+                    else {
+                        data.last_decrease = Utc::now();
+                    }
+                    data.pending_updates_send.send(ClientUpdate::ItemUpdate(item.get_id(), item.clone())).unwrap();
+                    data.last_len = data.pending_updates_send.len();
                 }
             },
             None => for (user, data) in self.auth_sessions.iter_mut() {
-                data.pending_updates_send.send(ClientUpdate::ItemUpdate(item.get_id(), item.clone()));
+                if data.last_len == data.pending_updates_send.len() && Utc::now().signed_duration_since(data.last_decrease) > TimeDelta::days(3) {
+                    remove_clients.push(user.clone());
+                }
+                else {
+                    data.last_decrease = Utc::now();
+                }
+                data.pending_updates_send.send(ClientUpdate::ItemUpdate(item.get_id(), item.clone())).unwrap();
+                data.last_len = data.pending_updates_send.len();
             }
+        }
+        for client in remove_clients {
+            self.auth_sessions.remove(&client);
         }
         self.changed_since_last_save = true;
         response_sender.send(self.database.update_request(item))
@@ -981,15 +1002,33 @@ impl DatabaseHandler {
         self.changed_since_last_save = true;
         let s_item = item.clone();
         let (res, id) = self.database.add_request(item);
+        let mut remove_clients = Vec::with_capacity(self.auth_sessions.len());
         match auth_key {
             Some(key) => for (user, data) in self.auth_sessions.iter_mut() {
                 if user != &key {
-                    data.pending_updates_send.send(ClientUpdate::ItemUpdate(id.clone(), s_item.clone()));
+                    if data.last_len == data.pending_updates_send.len() && Utc::now().signed_duration_since(data.last_decrease) > TimeDelta::days(3) {
+                        remove_clients.push(user.clone());
+                    }
+                    else {
+                        data.last_decrease = Utc::now();
+                    }
+                    data.pending_updates_send.send(ClientUpdate::ItemUpdate(id.clone(), s_item.clone())).unwrap();
+                    data.last_len = data.pending_updates_send.len();
                 }
             },
             None => for (user, data) in self.auth_sessions.iter_mut() {
-                data.pending_updates_send.send(ClientUpdate::ItemUpdate(id.clone(), s_item.clone()));
+                if data.last_len == data.pending_updates_send.len() && Utc::now().signed_duration_since(data.last_decrease) > TimeDelta::days(3) {
+                    remove_clients.push(user.clone());
+                }
+                else {
+                    data.last_decrease = Utc::now();
+                }
+                data.pending_updates_send.send(ClientUpdate::ItemUpdate(id.clone(), s_item.clone())).unwrap();
+                data.last_len = data.pending_updates_send.len();
             }
+        }
+        for client in remove_clients {
+            self.auth_sessions.remove(&client);
         }
         match s_item.clone() {
             DatabaseItem::Job(mut job) => if let DatabaseItemID::Job(job_id) = id {job.id = job_id; println!("[database] Sending job to the job thread"); self.jobs_sender.send(job).unwrap();}
@@ -1000,7 +1039,7 @@ impl DatabaseHandler {
     fn handle_new_auth_key(&mut self, response_sender:Sender<DatabaseReply>) -> Result<(), SendError<DatabaseReply>> {
         let new_auth = self.auth_sessions_rng.next_u64().to_string();
         let (send, recv) = channel();
-        self.auth_sessions.insert(new_auth.clone(), ClientSessionData { pending_updates_send: send, pending_updates_recv:recv });
+        self.auth_sessions.insert(new_auth.clone(), ClientSessionData { pending_updates_send: send, pending_updates_recv:recv, last_decrease:Utc::now(), last_len:0 });
         response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::NewAuth(new_auth)})
     }
     fn handle_auth_verification(&mut self, auth:String, response_sender:Sender<DatabaseReply>) -> Result<(), SendError<DatabaseReply>> {
@@ -1155,15 +1194,34 @@ impl DatabaseHandler {
     }
 
     fn handle_remove_request(&mut self, id:DatabaseItemID, response_sender:Sender<DatabaseReply>, auth_key:Option<String>) -> Result<(), SendError<DatabaseReply>> {
+        
+        let mut remove_clients = Vec::with_capacity(self.auth_sessions.len());
         match auth_key {
             Some(key) => for (user, data) in self.auth_sessions.iter_mut() {
                 if user != &key {
-                    data.pending_updates_send.send(ClientUpdate::ItemRemoval(id));
+                    if data.last_len == data.pending_updates_send.len() && Utc::now().signed_duration_since(data.last_decrease) > TimeDelta::days(3) {
+                        remove_clients.push(user.clone());
+                    }
+                    else {
+                        data.last_decrease = Utc::now();
+                    }
+                    data.pending_updates_send.send(ClientUpdate::ItemRemoval(id)).unwrap();
+                    data.last_len = data.pending_updates_send.len();
                 }
             },
             None => for (user, data) in self.auth_sessions.iter_mut() {
-                data.pending_updates_send.send(ClientUpdate::ItemRemoval(id));
+                if data.last_len == data.pending_updates_send.len() && Utc::now().signed_duration_since(data.last_decrease) > TimeDelta::days(3) {
+                    remove_clients.push(user.clone());
+                }
+                else {
+                    data.last_decrease = Utc::now();
+                }
+                data.pending_updates_send.send(ClientUpdate::ItemRemoval(id)).unwrap();
+                data.last_len = data.pending_updates_send.len();
             }
+        }
+        for client in remove_clients {
+            self.auth_sessions.remove(&client);
         }
         response_sender.send(self.database.remove_request(id))
     }
