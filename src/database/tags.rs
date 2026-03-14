@@ -74,6 +74,7 @@ impl Tags {
         let id = self.last_id;
         tag.number = id;
         self.all_tags.insert(id, tag);
+        self.last_id += 1;
         id
     }
     pub fn add_tag(&mut self, mut new_tag:NewTag) -> TagID {

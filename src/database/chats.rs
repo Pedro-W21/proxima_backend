@@ -162,14 +162,15 @@ impl Chats {
         self.all_chats.insert(id, chat).is_some()
     }
     pub fn add_chat_raw(&mut self, mut chat:Chat) -> ChatID {
-        let id = self.all_chats.len();
+        let id = self.latest_id;
         chat.id = id;
         self.all_chats.insert(id, chat);
+        self.latest_id += 1;
         id
     }
     pub fn get_last_chat(&self) -> Option<&Chat> {
         if self.all_chats.len() > 0 {
-            self.all_chats.get(&(self.all_chats.len() - 1))
+            self.all_chats.get(&(self.latest_id - 1))
         }
         else {
             None
