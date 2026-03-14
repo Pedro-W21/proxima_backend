@@ -51,8 +51,8 @@ impl Notifications {
     pub fn remove_notification(&mut self, id:NotificationID) -> bool { // was there
         self.notifs.remove(&id).is_some()
     }
-    pub fn insert_notification_raw(&mut self, notification:Notification) {
-        self.notifs.insert(notification.id, notification);
+    pub fn insert_notification_raw(&mut self, notification:Notification) -> bool {
+        self.notifs.insert(notification.id, notification).is_some()
     }
     pub fn get_notifications(&self) -> &HashMap<NotificationID, Notification> {
         &self.notifs

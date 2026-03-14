@@ -93,11 +93,11 @@ impl Files {
     pub fn len(&self) -> usize {
         self.all_files.len()
     }
-    pub fn get_file_mut(&mut self, id:FileID) -> &mut ProxFile {
-        &mut self.all_files[id]
+    pub fn get_file_mut(&mut self, id:FileID) -> Option<&mut ProxFile> {
+        self.all_files.get_mut(id)
     }
-    pub fn get_file_by_id(&self, id:FileID) -> &ProxFile {
-        &self.all_files[id]
+    pub fn get_file_by_id(&self, id:FileID) -> Option<&ProxFile> {
+        self.all_files.get(id)
     }
     pub fn take_next_file(&mut self) -> FileID {
         let id = self.number_of_files;

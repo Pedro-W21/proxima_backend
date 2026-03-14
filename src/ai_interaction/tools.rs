@@ -530,7 +530,7 @@ async fn web_open_tool(lines:Vec<String>) -> Result<String, ProximaToolCallError
                         ..Default::default()
                     };
                     let mut readability = Readability::new(html, Some(&url), Some(cfg)).unwrap();
-                    let article = readability.parse().unwrap();
+                    let article = readability.parse().map_err(|error| {ProximaToolCallError::WebError(format!("page {} had {error} when opening it", url.clone()))})?;
                     output += &format!("{} : ```{}```\n", url, article.text_content)
                 },
                 Err(error) => return Err(ProximaToolCallError::WebError(format!("{}", error)))

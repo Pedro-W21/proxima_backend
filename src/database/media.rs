@@ -68,9 +68,10 @@ impl MediaStorage {
             None => None
         }
     }
-    pub fn update_media(&mut self, mut new_media:Media, new_data:Vec<u8>, proxima_data_path:PathBuf) {
-        self.data.remove(&new_media.hash);
+    pub fn update_media(&mut self, mut new_media:Media, new_data:Vec<u8>, proxima_data_path:PathBuf) -> bool {
+        let existed = self.data.remove(&new_media.hash).is_some();
         self.add_media(new_data, new_media.tags, new_media.access_modes, new_media.file_name, proxima_data_path, new_media.media_type);
+        existed
     }
     pub fn insert_media_raw(&mut self, media:Media) {
         self.data.insert(media.hash, media);

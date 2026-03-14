@@ -115,11 +115,12 @@ impl Chat {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Chats {
     all_chats:HashMap<ChatID, Chat>,
+    pub latest_id:ChatID
 }
 
 impl Chats {
     pub fn new() -> Self {
-        Self { all_chats:HashMap::with_capacity(4096) }
+        Self { all_chats:HashMap::with_capacity(4096), latest_id:0 }
     }
     pub fn add_context_part_to(&mut self, context_part:ContextPart, chat_id:ChatID) {
         match self.all_chats.get_mut(&chat_id) {
@@ -134,12 +135,13 @@ impl Chats {
         &mut self.all_chats
     }
     pub fn create_chat(&mut self, starting_context:WholeContext, session_id:Option<SessionID>, origin_device:DeviceID, config:Option<ChatConfiguration>) -> ChatID {
-        let id = self.all_chats.len();
+        let id = self.latest_id;
+        self.latest_id += 1;
         self.all_chats.insert(id, Chat::new_with_id(id, starting_context, session_id, origin_device, config));
         id
     }
     pub fn create_possible_chat(&self, starting_context:WholeContext, session_id:Option<SessionID>, origin_device:DeviceID, config:Option<ChatConfiguration>) -> Chat {
-        let id = self.all_chats.len();
+        let id = self.latest_id;
         Chat {
             context: starting_context,
             chat_title: None,
@@ -155,9 +157,9 @@ impl Chats {
             latest_used_config:config
         }
     }
-    pub fn update_chat(&mut self, chat:Chat) {
+    pub fn update_chat(&mut self, chat:Chat) -> bool {
         let id = chat.id;
-        self.all_chats.insert(id, chat);
+        self.all_chats.insert(id, chat).is_some()
     }
     pub fn add_chat_raw(&mut self, mut chat:Chat) -> ChatID {
         let id = self.all_chats.len();

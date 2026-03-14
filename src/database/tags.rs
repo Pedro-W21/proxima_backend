@@ -53,7 +53,7 @@ impl NewTag {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Tags {
     all_tags:HashMap<TagID,Tag>,
-    last_id:usize,
+    pub last_id:usize,
 }
 
 impl Tags {
@@ -63,9 +63,9 @@ impl Tags {
     pub fn get_tags_mut(&mut self) -> &mut HashMap<TagID, Tag> {
         &mut self.all_tags
     }
-    pub fn update_tag(&mut self, new_tag:Tag) {
+    pub fn update_tag(&mut self, new_tag:Tag) -> bool {
         let num = new_tag.number;
-        self.all_tags.insert(num, new_tag);
+        self.all_tags.insert(num, new_tag).is_some()
     }
     pub fn new() -> Self {
         Self { all_tags: HashMap::with_capacity(256),last_id:0 }
@@ -74,7 +74,6 @@ impl Tags {
         let id = self.last_id;
         tag.number = id;
         self.all_tags.insert(id, tag);
-        self.last_id += 1;
         id
     }
     pub fn add_tag(&mut self, mut new_tag:NewTag) -> TagID {

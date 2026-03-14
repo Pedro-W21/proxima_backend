@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use tags::{Tag, TagID, Tags};
 use user::{PersonalInformation, UserData};
 
-use crate::{ai_interaction::create_prompt::{AgentPrompt, get_agent_prompt_context}, database::{configuration::{ChatConfigID, ChatConfiguration, ChatConfigurations}, context::WholeContext, jobs::{Job, JobID, Jobs}, loading_saving::{load_from_disk, save_to_disk}, media::{Media, MediaHash, MediaStorage}, memories::{Memories, Memory, MemoryID, MemoryRequest}, notifications::{Notification, NotificationID, Notifications}, user::UserStats}};
+use crate::{ai_interaction::create_prompt::{AgentPrompt}, database::{configuration::{ChatConfigID, ChatConfiguration, ChatConfigurations}, context::WholeContext, jobs::{Job, JobID, Jobs}, loading_saving::{load_from_disk, save_to_disk}, media::{Media, MediaHash, MediaStorage}, memories::{Memories, Memory, MemoryID, MemoryRequest}, notifications::{Notification, NotificationID, Notifications}, user::UserStats}};
 
 pub mod tags;
 pub mod folders;
@@ -80,469 +80,63 @@ impl ProxDatabase {
     pub fn new_just_data(pseudonym:String, password_hash:String) -> ProxDatabase {
         Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder:PathBuf::from("a/a/a/a/a/a/a/a"), chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new(), notifications:Notifications::new(), jobs:Jobs::new() }
     }
-    pub fn add_desc_and_tags(&mut self, desc_type:DescriptionTarget, desc:Description, tags:HashSet<TagID>) {
-        match desc_type {
-            DescriptionTarget::File(id) => self.files.get_file_mut(id).add_desc_tags(desc, tags),
-            DescriptionTarget::Folder(id) => self.folders.get_folder_mut(id).add_desc_tags(desc, tags),
-        }
-    }
-    pub fn insert_access_mode(&mut self, access_mode:AccessMode) {
-        let id = access_mode.get_id();
-        self.access_modes.get_modes_mut().insert(id, access_mode);
-        for i in (id + 1)..self.access_modes.get_modes().len() {
-            self.access_modes.get_modes_mut()[i].set_id(i);
-        }
-        for i in 0..self.chats.get_chats().len() {
-            let mut new_set = HashSet::with_capacity(16);
-            let mut chat = self.chats.get_chats_mut().get_mut(&i).unwrap();
-            for access_mode_id in chat.access_modes.iter() {
-                if *access_mode_id >= id {
-                    new_set.insert(*access_mode_id + 1);
-                }
-                else {
-                    new_set.insert(*access_mode_id);
-                }
-            }
-            match &mut chat.latest_used_config {
-                Some(last_config) => {
-                    let mut new_set = HashSet::with_capacity(16);
-                    for access_mode_id in last_config.access_modes.iter() {
-                        if *access_mode_id >= id {
-                            new_set.insert(*access_mode_id + 1);
-                        }
-                        else {
-                            new_set.insert(*access_mode_id);
-                        }
-                    }
-                    last_config.access_modes = new_set;
-                },
-                None => (),
-            }
-            chat.access_modes = new_set;
-        }
-        for i in 0..self.files.len() {
-            let mut new_set = HashSet::with_capacity(16);
-            let mut file = self.files.get_file_mut(i);
-            for access_mode_id in file.access_modes.iter() {
-                if *access_mode_id >= id {
-                    new_set.insert(*access_mode_id + 1);
-                }
-                else {
-                    new_set.insert(*access_mode_id);
-                }
-            }
-            file.access_modes = new_set;
-        }
-        for i in 0..self.folders.number_of_folders() {
-            let mut new_set = HashSet::with_capacity(16);
-            let mut folder = self.folders.get_folder_mut(i);
-            for access_mode_id in folder.access_modes.iter() {
-                if *access_mode_id >= id {
-                    new_set.insert(*access_mode_id + 1);
-                }
-                else {
-                    new_set.insert(*access_mode_id);
-                }
-            }
-            folder.access_modes = new_set;
-        }
-        for i in 0..self.configs.get_configs().len() {
-            let mut new_set = HashSet::with_capacity(16);
-            let mut config = &mut self.configs.get_configs_mut()[i];
-            for access_mode_id in config.access_modes.iter() {
-                if *access_mode_id >= id {
-                    new_set.insert(*access_mode_id + 1);
-                }
-                else {
-                    new_set.insert(*access_mode_id);
-                }
-            }
-            config.access_modes = new_set;
-        }
-        
-        for (hash, media) in &mut self.media.data {
-            let mut new_set = HashSet::with_capacity(16);
-            for access_mode_id in media.access_modes.iter() {
-                if *access_mode_id >= id {
-                    new_set.insert(*access_mode_id + 1);
-                }
-                else {
-                    new_set.insert(*access_mode_id);
-                }
-            }
-            media.access_modes = new_set;
-        }
-    }
-
-    pub fn insert_tag(&mut self, tag:Tag) {
-        let id = tag.get_id();
-        self.tags.get_tags_mut().insert(id, tag);
-        for i in (id + 1)..self.tags.get_tags().len() {
-            self.tags.get_tags_mut().get_mut(&i).unwrap().set_id(i);
-        }
-        
-        for i in 0..self.chats.get_chats().len() {
-            let mut new_set = HashSet::with_capacity(16);
-            let mut chat = self.chats.get_chats_mut().get_mut(&i).unwrap();
-            for tag_id in chat.tags.iter() {
-                if *tag_id >= id {
-                    new_set.insert(*tag_id + 1);
-                }
-                else {
-                    new_set.insert(*tag_id);
-                }
-            }
-            match &mut chat.latest_used_config {
-                Some(last_config) => {
-                    let mut new_set = HashSet::with_capacity(16);
-                    for tag_id in last_config.tags.iter() {
-                        if *tag_id >= id {
-                            new_set.insert(*tag_id + 1);
-                        }
-                        else {
-                            new_set.insert(*tag_id);
-                        }
-                    }
-                    last_config.tags = new_set;
-                },
-                None => (),
-            }
-            chat.tags = new_set;
-        }
-        for i in 0..self.files.len() {
-            let mut new_set = HashSet::with_capacity(16);
-            let mut file = self.files.get_file_mut(i);
-            for tag_id in file.tags.iter() {
-                if *tag_id >= id {
-                    new_set.insert(*tag_id + 1);
-                }
-                else {
-                    new_set.insert(*tag_id);
-                }
-            }
-            file.tags = new_set;
-        }
-        for i in 0..self.folders.number_of_folders() {
-            let mut new_set = HashSet::with_capacity(16);
-            let mut folder = self.folders.get_folder_mut(i);
-            for tag_id in folder.tags.iter() {
-                if *tag_id >= id {
-                    new_set.insert(*tag_id + 1);
-                }
-                else {
-                    new_set.insert(*tag_id);
-                }
-            }
-            folder.tags = new_set;
-        }
-        for i in 0..self.access_modes.get_modes().len() {
-            let mut new_set = HashSet::with_capacity(16);
-            let mut access_mode = &mut self.access_modes.get_modes_mut()[i];
-            for tag_id in access_mode.tags.iter() {
-                if *tag_id >= id {
-                    new_set.insert(*tag_id + 1);
-                }
-                else {
-                    new_set.insert(*tag_id);
-                }
-            }
-            access_mode.tags = new_set;
-        }
-        for i in 0..self.configs.get_configs().len() {
-            let mut new_set = HashSet::with_capacity(16);
-            let mut config = &mut self.configs.get_configs_mut()[i];
-            for tag_id in config.tags.iter() {
-                if *tag_id >= id {
-                    new_set.insert(*tag_id + 1);
-                }
-                else {
-                    new_set.insert(*tag_id);
-                }
-            }
-            config.tags = new_set;
-        }
-        for (hash, media) in &mut self.media.data {
-            let mut new_set = HashSet::with_capacity(16);
-            for tag_id in media.tags.iter() {
-                if *tag_id >= id {
-                    new_set.insert(*tag_id + 1);
-                }
-                else {
-                    new_set.insert(*tag_id);
-                }
-            }
-            media.tags = new_set;
-        }
-    }
-    pub fn insert_chat(&mut self, chat:Chat) {
-        let id = chat.get_id();
-        for i in (id..self.chats.get_chats().len()).rev() {
-            let mut chat = self.chats.get_chats_mut().remove(&i).unwrap();
-            chat.id = (i + 1);
-            chat.update_agent_chatids_from_insert(id);
-            self.chats.get_chats_mut().insert((i + 1), chat);
-        }
-        self.chats.get_chats_mut().insert(id, chat);
-    }
-    pub fn insert_file(&mut self, file:ProxFile) {
-        let id = file.get_id();
-        self.files.insert_file(file);
-        
-        for i in 0..self.folders.number_of_folders() {
-            let folder = self.folders.get_folder_mut(i);
-            for file in folder.files.iter_mut() {
-                if *file >= id {
-                    *file = *file + 1;
-                }
-            }
-        }
-    }
-    pub fn insert_folder(&mut self, folder:ProxFolder) {
-        let id = folder.get_id();
-        self.folders.insert_folder(folder);
-        
-    }
-    pub fn insert_device(&mut self, device:Device) {
-        let id = device.id;
-        self.devices.get_devices_mut().insert(id, device);
-        for i in (id + 1)..self.devices.get_devices().len() {
-            self.devices.get_devices_mut()[i].id = i;
-        }
-        
-        for i in 0..self.chats.get_chats().len() {
-            let mut chat = self.chats.get_chats_mut().get_mut(&i).unwrap();
-            if chat.origin_device >= id {
-                chat.origin_device += 1;
-            }
-        }
-        for i in 0..self.files.len() {
-            let mut file = self.files.get_file_mut(i);
-            if file.from_device >= id {
-                file.from_device += 1;
-            }
-        }
-        for i in 0..self.folders.number_of_folders() {
-            let mut folder = self.folders.get_folder_mut(i);
-            if folder.from_device >= id {
-                folder.from_device += 1;
-            }
-        }
-    }
-    pub fn insert_config(&mut self, config:ChatConfiguration) {
-        self.configs.insert_config(config.clone());
-        for i in 0..self.chats.get_chats().len() {
-            let chat = self.chats.get_chats_mut().get_mut(&i).unwrap();
-            match &mut chat.config {
-                Some(id) => if *id >= config.id {
-                    *id += 1;
-                },
-                None => (),
-            }
-            match &mut chat.latest_used_config {
-                Some(last_config) => if last_config.id >= config.id {
-                    last_config.id += 1;
-                },
-                None => (),
-            }
-        }
-    }
-    pub fn insert_or_update(&mut self, item:DatabaseItem) -> bool { //true if updated, false if inserted
-        match item {
-            DatabaseItem::AccessMode(access_mode) => {
-                if self.access_modes.get_modes()[access_mode.get_id()].added_on == access_mode.added_on {
-                    self.access_modes.update_mode(access_mode);
-                    true
-                }
-                else {
-                    self.insert_access_mode(access_mode);
-                    false
-                }
-            },
-            DatabaseItem::Chat(chat) => {
-                let id = chat.get_id();
-                if self.chats.get_chats().get(&id).unwrap().start_date == chat.start_date {
-                    self.chats.get_chats_mut().insert(id, chat);
-                    true
-                }
-                else {
-                    self.insert_chat(chat);
-                    false
-                }
-            },
-            DatabaseItem::Device(device) => {
-                let id = device.get_id();
-                if self.devices.get_devices()[id].added_on == device.added_on {
-                    self.devices.get_devices_mut()[id] = device;
-                    true
-                }
-                else {
-                    self.insert_device(device);
-                    false
-                }
-            },
-            DatabaseItem::File(file) => {
-                let id = file.get_id();
-                if self.files.get_file_mut(id).added_at == file.added_at {
-                    *self.files.get_file_mut(id) = file;
-                    true
-                }
-                else {
-                    self.insert_file(file);
-                    false
-                }
-            },
-            DatabaseItem::Folder(folder) => {
-                let id = folder.get_id();
-                if self.folders.get_folder_mut(id).added_at == folder.added_at {
-                    *self.folders.get_folder_mut(id) = folder;
-                    true
-                }  
-                else {
-                    self.insert_folder(folder);
-                    false
-                }
-            },
-            DatabaseItem::Tag(tag) => {
-                let id = tag.get_id();
-                if self.tags.get_tags_mut().get(&id).unwrap().created_at == tag.created_at {
-                    self.tags.get_tags_mut().insert(id, tag);
-                    true
-                }
-                else {
-                    self.insert_tag(tag);
-                    false
-                }
-            },
-            DatabaseItem::ChatConfig(config) => {
-                let id = config.id;
-                if self.configs.get_configs()[id].created_on == config.created_on {
-                    self.configs.get_configs_mut()[id] = config;
-                    true
-                }
-                else {
-                    self.insert_config(config);
-                    false
-                }
-            }
-            DatabaseItem::UserData(user_data) => {
-                self.personal_info.user_data = user_data;
-                true
-            },
-            DatabaseItem::UserStats(user_stats) => {
-                self.personal_info.user_stats = user_stats;
-                true
-            },
-            DatabaseItem::Media(media, data) => {
-                let med = self.media.get_media(&media.hash).unwrap();
-                if med.added_at == media.added_at {
-                    self.media.update_media(media, data, self.database_folder.clone());
-                    true
-                }
-                else {
-                    self.media.add_media(data, media.tags, media.access_modes, media.file_name, self.database_folder.clone(), media.media_type);
-                    false
-                }
-            },
-            DatabaseItem::Memory(memory, data) => {
-                let mem = self.memories.memories.get(&memory.id).unwrap();
-                if mem.add_date == memory.add_date {
-                    self.memories.update_memory(memory.id, data, self.database_folder.clone());
-                    true
-                }
-                else {
-                    self.memories.add_memory(data, memory.access_modes, memory.tags, self.database_folder.clone());
-                    false
-                }
-            },
-            DatabaseItem::Notification(notif) => {
-                match self.notifications.get_notifications().get(&notif.id) {
-                    Some(notification) => if notif.timestamp == notification.timestamp {
-                        self.notifications.insert_notification_raw(notif);
-                        true
-                    }
-                    else {
-                        self.notifications.add_notification(notif);
-                        false
-                    },
-                    None => {
-                        self.notifications.add_notification(notif);
-                        false
-                    }
-                }
-            },
-            DatabaseItem::Job(job) => {
-                match self.jobs.get_job(job.id) {
-                    Some(current_job) => if job.added_at == current_job.added_at {
-                        self.jobs.update_job(job);
-                        true
-                    }
-                    else {
-                        self.jobs.add_job(job);
-                        false
-                    },
-                    None => {
-                        self.jobs.add_job(job);
-                        false
-                    }
-                }
-            }
-        }
-    }
-    pub fn insert_directly(&mut self, item:DatabaseItem) {
-        match item {
-            DatabaseItem::AccessMode(access_mode) => {
-                    self.insert_access_mode(access_mode);
-            },
-            DatabaseItem::Chat(chat) => {
-                    self.insert_chat(chat);
-            },
-            DatabaseItem::Device(device) => {
-                    self.insert_device(device);
-            },
-            DatabaseItem::File(file) => {
-                    self.insert_file(file);
-            },
-            DatabaseItem::Folder(folder) => {
-                    self.insert_folder(folder);
-            },
-            DatabaseItem::Tag(tag) => {
-                    self.insert_tag(tag);
-            },
-            DatabaseItem::ChatConfig(config) => {
-                self.insert_config(config);
-            },
-            DatabaseItem::Media(media, data) => {
-                self.media.add_media(data, media.tags, media.access_modes, media.file_name, self.database_folder.clone(), media.media_type);
-            },
-            DatabaseItem::Memory(memory, data) => {
-                self.memories.add_memory(data, memory.access_modes, memory.tags, self.database_folder.clone());
-            },
-            DatabaseItem::Notification(notif) => {
-                self.notifications.insert_notification_raw(notif);
-            },
-            DatabaseItem::UserData(user_data) => {
-                self.personal_info.user_data = user_data;
-            },
-            DatabaseItem::UserStats(user_stats) => {
-                self.personal_info.user_stats = user_stats;
-            },
-            DatabaseItem::Job(job) => {
-                self.jobs.update_job(job);
-            }
-        }
-    }
     pub fn get_request(&self, id:DatabaseItemID) -> DatabaseReply {
         match id {
-            DatabaseItemID::Tag(tagid) => DatabaseReply {variant : DatabaseReplyVariant::ReturnedItem(DatabaseItem::Tag(self.tags.get_tags().get(&tagid).unwrap().clone()))},
-            DatabaseItemID::AccessMode(modeid) => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::AccessMode(self.access_modes.get_modes()[modeid].clone()))},
-            DatabaseItemID::Device(deviceid) => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Device(self.devices.get_devices()[deviceid].clone()))},
-            DatabaseItemID::Chat(chatid) => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Chat(self.chats.get_chats().get(&chatid).unwrap().clone()))},
-            DatabaseItemID::File(fileid) => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::File(self.files.get_file_by_id(fileid).clone()))},
-            DatabaseItemID::Folder(folderid) => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Folder(self.folders.get_folder_by_id(folderid).clone()))},
-            DatabaseItemID::ChatConfiguration(configid) => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::ChatConfig(self.configs.get_configs()[configid].clone()))},
+            DatabaseItemID::Tag(tagid) => if let Some(tag) = self.tags.get_tags().get(&tagid) {
+                DatabaseReply {variant : DatabaseReplyVariant::ReturnedItem(DatabaseItem::Tag(tag.clone()))}
+            }
+            else {
+                DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(id)) }
+            },
+            DatabaseItemID::AccessMode(modeid) => if let Some(access_mode) = self.access_modes.get_modes().get(&modeid) {
+                DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::AccessMode(access_mode.clone()))}
+            }
+            else {
+                DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(id)) }
+            }
+            DatabaseItemID::Device(deviceid) => if let Some(device) = self.devices.get_devices().get(&deviceid) {
+                DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Device(device.clone()))}
+            }
+            else {
+                DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(id)) }
+            }
+            DatabaseItemID::Chat(chatid) => if let Some(chat) = self.chats.get_chats().get(&chatid) {
+                DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Chat(chat.clone()))}
+            }
+            else {
+                DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(id)) }
+            }
+            DatabaseItemID::File(fileid) => if let Some(file) = self.files.get_file_by_id(fileid) {
+                DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::File(file.clone()))}
+            }
+            else {
+                DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(id)) }
+            },
+            DatabaseItemID::Folder(folderid) => if let Some(folder) = self.folders.get_folder_by_id(folderid) {
+                DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Folder(folder.clone()))}
+            }
+            else {
+                DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(id)) }
+            },
+            DatabaseItemID::ChatConfiguration(configid) => if let Some(config) = self.configs.get_configs().get(&configid) {
+                DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::ChatConfig(config.clone()))}
+            }
+            else {
+                DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(id)) }
+            },
             DatabaseItemID::UserData => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::UserData(self.personal_info.user_data.clone()))},
-            DatabaseItemID::Media(mediaid) => {let (media, data) = self.media.get_media_with_data(&mediaid, self.database_folder.clone()).unwrap(); DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Media(media.clone(), data))}},
-            DatabaseItemID::Memory(memoryid) => {let (memory, data) = self.memories.get_memory_with_data(memoryid, self.database_folder.clone()).unwrap(); DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Memory(memory.clone(), data))}},
+            DatabaseItemID::Media(mediaid) => if let Some((media, data)) = self.media.get_media_with_data(&mediaid, self.database_folder.clone()) {
+                DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Media(media.clone(), data))}
+            }
+            else {
+                DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(id)) }
+            },
+            DatabaseItemID::Memory(memoryid) => if let Some((memory, data)) = self.memories.get_memory_with_data(memoryid, self.database_folder.clone()) {
+                DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Memory(memory.clone(), data))}
+            }
+            else {
+                DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(id)) }
+            },
             DatabaseItemID::Notification(notif) => if let Some(notification) = self.notifications.get_notifications().get(&notif) {
                 DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Notification(notification.clone()))}
             }
@@ -561,19 +155,32 @@ impl ProxDatabase {
     pub fn update_request(&mut self, item:DatabaseItem) -> DatabaseReply {
         
         match item {
-            DatabaseItem::Tag(tag) => {self.tags.update_tag(tag); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
-            DatabaseItem::AccessMode(access_mode) => {self.access_modes.update_mode(access_mode); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
-            DatabaseItem::Device(device) => {self.devices.update_device(device); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
-            DatabaseItem::Chat(chat) => {self.chats.update_chat(chat); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
-            DatabaseItem::File(file) => {let id = file.get_id(); *self.files.get_file_mut(id) = file; DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
-            DatabaseItem::Folder(folder) => {let id = folder.get_id();*self.folders.get_folder_mut(id) = folder; DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
-            DatabaseItem::ChatConfig(config) => {self.configs.update_config(config); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
-            DatabaseItem::Media(media, data) => {self.media.update_media(media, data, self.database_folder.clone()); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
-            DatabaseItem::Memory(memory, data) => {self.memories.update_memory(memory.id, data, self.database_folder.clone()); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
-            DatabaseItem::Notification(notif) => {self.notifications.insert_notification_raw(notif); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
+            DatabaseItem::Tag(tag) if self.tags.update_tag(tag.clone()) => DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted },
+            DatabaseItem::AccessMode(access_mode) if self.access_modes.update_mode(access_mode.clone()) => {DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
+            DatabaseItem::Device(device) if self.devices.update_device(device.clone()) => {DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
+            DatabaseItem::Chat(chat) if self.chats.update_chat(chat.clone()) => {DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
+            DatabaseItem::File(file) => {let id = file.get_id(); if self.files.get_file_mut(id).and_then(|f| {
+                *f = file; Some(0_u8)
+            }).is_some() {
+                DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }
+            } else {
+                DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(DatabaseItemID::File(id))) }
+            }},
+            DatabaseItem::Folder(folder) => {let id = folder.get_id();if self.folders.get_folder_mut(id).and_then(|f| {
+                *f = folder; Some(0_u8)
+            }).is_some() {
+                DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }
+            } else {
+                DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(DatabaseItemID::File(id))) }
+            }},
+            DatabaseItem::ChatConfig(config) if self.configs.update_config(config.clone()) => {DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
+            DatabaseItem::Media(media, data) if self.media.update_media(media.clone(), data.clone(), self.database_folder.clone()) => {DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
+            DatabaseItem::Memory(memory, data) if self.memories.update_memory(memory.id, data.clone(), self.database_folder.clone()) => {DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
+            DatabaseItem::Notification(notif) if self.notifications.insert_notification_raw(notif.clone()) => {DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
             DatabaseItem::UserData(user_data) => {self.personal_info.user_data = user_data; DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
             DatabaseItem::UserStats(user_stats) => {self.personal_info.user_stats = user_stats; DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
-            DatabaseItem::Job(job) => {self.jobs.update_job(job); DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
+            DatabaseItem::Job(job) if self.jobs.update_job(job.clone()) => {DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
+            _ => DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(item.get_id())) }
         }  
     }
     pub fn add_request(&mut self, item:DatabaseItem) -> (DatabaseReply, DatabaseItemID) {
@@ -806,7 +413,6 @@ pub enum DatabaseRequestVariant {
     ToolRequest(ToolRequest),
     NewAuthKey,
     VerifyAuthKey(String),
-    GetAgentPrompt(AgentPrompt), // >:(
     Save
 }
 
@@ -1068,8 +674,8 @@ impl DatabaseHandler {
             DatabaseInfoRequest::LatestItems => {
                 response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::Info(
                 DatabaseInfoReply::LatestItems { items: vec![
-                    self.database.devices.get_devices().last().map(|item| {DatabaseItem::Device(item.clone())}),
-                    self.database.access_modes.get_modes().last().map(|item| {DatabaseItem::AccessMode(item.clone())}),
+                    self.database.devices.get_devices().get(&(self.database.devices.latest_id - 1)).map(|item| {DatabaseItem::Device(item.clone())}),
+                    self.database.access_modes.get_modes().get(&(self.database.access_modes.latest_id - 1)).map(|item| {DatabaseItem::AccessMode(item.clone())}),
                     self.database.chats.get_last_chat().map(|item| {DatabaseItem::Chat(item.clone())}),
                     self.database.folders.get_last_folder().map(|item| {DatabaseItem::Folder(item.clone())}),
                     self.database.files.get_last_file().map(|item| {DatabaseItem::File(item.clone())}),
@@ -1086,9 +692,6 @@ impl DatabaseHandler {
                 ) })*/
             }
         }
-    }
-    fn handle_agent_prompt(&self, agent_prompt:AgentPrompt, response_sender:Sender<DatabaseReply>) -> Result<(), SendError<DatabaseReply>> {
-        response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ConstructedPrompt(get_agent_prompt_context(&self.database, agent_prompt))})
     }
     fn handle_getall(&self, response_sender:Sender<DatabaseReply>) -> Result<(), SendError<DatabaseReply>> {
         response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReplyAll(self.database.clone()) })
@@ -1146,17 +749,19 @@ impl DatabaseHandler {
             ToolRequest::SearchTagsByAccessModes(access_modes) => {
                 let mut tags = Vec::with_capacity(128); 
                 for mode in access_modes {
-                    self.database.access_modes.get_modes()[mode].tags.iter().for_each(|tag_id| {
-                        self.database.tags.get_tag_from_tagid(*tag_id).map(|tag| {
-                            tags.push(DatabaseItem::Tag(tag.clone()));
-                        });
+                    self.database.access_modes.get_modes().get(&mode).map(|am| {
+                        am.tags.iter().for_each(|tag_id| {
+                            self.database.tags.get_tag_from_tagid(*tag_id).map(|tag| {
+                                tags.push(DatabaseItem::Tag(tag.clone()));
+                            });
+                        })
                     });
                 }
                 
                 response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedManyItems(tags)})
             } ,
             ToolRequest::AddTagToAccessMode(access_mode_id, tag_id) => {
-                self.database.access_modes.get_modes_mut().get_mut(access_mode_id).map(|access_mode| {
+                self.database.access_modes.get_modes_mut().get_mut(&access_mode_id).map(|access_mode| {
                     access_mode.tags.insert(tag_id);
                     for (user, data) in self.auth_sessions.iter_mut() {
                         data.pending_updates_send.send(ClientUpdate::ItemUpdate(DatabaseItemID::AccessMode(access_mode_id), DatabaseItem::AccessMode(access_mode.clone())));
@@ -1237,7 +842,6 @@ impl DatabaseHandler {
                     DatabaseRequestVariant::NewAuthKey => self.handle_new_auth_key(db_request.response_sender),
                     DatabaseRequestVariant::VerifyAuthKey(auth) => self.handle_auth_verification(auth, db_request.response_sender),
                     DatabaseRequestVariant::Info(info_request) => self.handle_info_request(info_request, db_request.response_sender),
-                    DatabaseRequestVariant::GetAgentPrompt(agent_prompt) => self.handle_agent_prompt(agent_prompt, db_request.response_sender),
                     DatabaseRequestVariant::GetAll => self.handle_getall(db_request.response_sender),
                     DatabaseRequestVariant::Save => self.handle_save(db_request.response_sender),
                     DatabaseRequestVariant::ToolRequest(tool_request) => self.handle_tool_request(tool_request, db_request.response_sender)

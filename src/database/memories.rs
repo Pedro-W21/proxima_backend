@@ -67,15 +67,15 @@ impl Memories {
         self.memories.insert(id, memory);
         id
     }
-    pub fn update_memory(&mut self, id:MemoryID, data:String, proxima_data_path:PathBuf) {
+    pub fn update_memory(&mut self, id:MemoryID, data:String, proxima_data_path:PathBuf) -> bool {
         self.memories.get_mut(&id).and_then(|memory| {
             match File::create(proxima_data_path.join(format!("memories/{}", memory.file_name))) {
                 Ok(mut file) => file.write_all(data.as_bytes()).expect("File should be writable"),
                 Err(e) => panic!("File should be creatable by now, error : {e}")
             };
             memory.last_update = Utc::now();
-            Option::<u8>::None
-        });
+            Some(0_u8)
+        }).is_some()
     }
     pub fn retrieve_ids(&self, request:MemoryRequest) -> Vec<MemoryID> {
         let mut retrieved = Vec::with_capacity(4);

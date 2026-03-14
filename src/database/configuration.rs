@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -146,34 +146,29 @@ impl ChatSetting {
 }
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ChatConfigurations {
-    pub all_configs:Vec<ChatConfiguration>
+    pub all_configs:HashMap<ChatConfigID, ChatConfiguration>,
+    pub latest_id:ChatConfigID
 }
 
 impl ChatConfigurations {
     pub fn new() -> Self {
-        Self { all_configs: Vec::with_capacity(1000) }
+        Self { all_configs: HashMap::with_capacity(1000), latest_id:0 }
     }
     pub fn add_config(&mut self, mut config:ChatConfiguration) -> ChatConfigID {
-        let id = self.all_configs.len();
+        let id = self.latest_id;
         config.id = id;
-        self.all_configs.push(config);
+        self.latest_id += 1;
+        self.all_configs.insert(id, config);
         id
     }
-    pub fn update_config(&mut self, config:ChatConfiguration) {
+    pub fn update_config(&mut self, config:ChatConfiguration) -> bool {
         let id = config.id;
-        self.all_configs[id] = config;
+        self.all_configs.insert(id, config).is_some()
     }
-    pub fn insert_config(&mut self, config:ChatConfiguration) {
-        let id = config.id;
-        for config in &mut self.all_configs[id..] {
-            config.id += 1
-        }
-        self.all_configs.insert(id,config);
-    }
-    pub fn get_configs(&self) -> &Vec<ChatConfiguration> {
+    pub fn get_configs(&self) -> &HashMap<ChatConfigID, ChatConfiguration> {
         &self.all_configs
     }
-    pub fn get_configs_mut(&mut self) -> &mut Vec<ChatConfiguration> {
+    pub fn get_configs_mut(&mut self) -> &mut HashMap<ChatConfigID, ChatConfiguration> {
         &mut self.all_configs
     }
 }

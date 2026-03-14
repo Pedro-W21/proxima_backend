@@ -438,8 +438,8 @@ impl Jobs {
         self.jobs.insert(id, job);
         id
     }
-    pub fn update_job(&mut self, job:Job) {
-        self.jobs.insert(job.id, job);
+    pub fn update_job(&mut self, job:Job) -> bool {
+        self.jobs.insert(job.id, job).is_some()
     }
     pub fn remove_job(&mut self, job_id:JobID) {
         self.jobs.remove(&job_id);

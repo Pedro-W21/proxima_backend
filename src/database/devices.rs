@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -34,28 +36,29 @@ impl Device {
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Devices {
-    all_devices:Vec<Device>,
+    all_devices:HashMap<DeviceID, Device>,
+    pub latest_id:DeviceID,
 }
 
 impl Devices {
     pub fn new() -> Self {
-        Self { all_devices: Vec::with_capacity(32) }
+        Self { all_devices: HashMap::with_capacity(32), latest_id:0}
     }
-    pub fn get_devices(&self) -> &Vec<Device> {
+    pub fn get_devices(&self) -> &HashMap<DeviceID, Device> {
         &self.all_devices
     }
-    pub fn get_devices_mut(&mut self) -> &mut Vec<Device> {
+    pub fn get_devices_mut(&mut self) -> &mut HashMap<DeviceID, Device> {
         &mut self.all_devices
     }
-    pub fn update_device(&mut self, mut device:Device) {
+    pub fn update_device(&mut self, mut device:Device) -> bool {
         let id = device.id;
-        self.all_devices[id] = device;
-        
+        self.all_devices.insert(id, device).is_some()
     }
     pub fn add_device(&mut self, mut device:Device) -> DeviceID {
-        let id = self.all_devices.len();
+        let id = self.latest_id;
+        self.latest_id += 1;
         device.id = id;
-        self.all_devices.push(device);
+        self.all_devices.insert(id, device);
         id
     }
 }

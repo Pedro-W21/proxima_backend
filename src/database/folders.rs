@@ -115,12 +115,12 @@ pub struct Folders {
     ignore_those_folders:HashSet<AbsolutePath>,
     ignore_those_folder_names:HashSet<String>,
     ignore_those_file_extensions:HashSet<String>,
-    latest_id:FolderID,
+    pub latest_id:FolderID,
 }
 
 impl Folders {
-    pub fn get_folder_by_id(&self, id:FolderID) -> &ProxFolder {
-        self.all_folders.get(&id).unwrap()
+    pub fn get_folder_by_id(&self, id:FolderID) -> Option<&ProxFolder> {
+        self.all_folders.get(&id)
     }
     pub fn new() -> Self {
         Self { all_folders: HashMap::with_capacity(1024), starting_points:HashSet::with_capacity(1024), path_to_id_map:HashMap::with_capacity(1024), latest_id:0, ignore_those_folders:HashSet::with_capacity(1024),ignore_those_folder_names:HashSet::with_capacity(1024), ignore_those_file_extensions:HashSet::with_capacity(1024) }
@@ -163,8 +163,8 @@ impl Folders {
         self.starting_points = new_starts;
         self.all_folders.insert(id, folder);
     }
-    pub fn get_folder_mut(&mut self, folder:FolderID) -> &mut ProxFolder {
-        self.all_folders.get_mut(&folder).unwrap()
+    pub fn get_folder_mut(&mut self, folder:FolderID) -> Option<&mut ProxFolder> {
+        self.all_folders.get_mut(&folder)
     }
 
     pub fn number_of_folders(&self) -> usize {
