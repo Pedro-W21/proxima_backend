@@ -606,8 +606,9 @@ impl DatabaseHandler {
     }
     fn handle_add_request(&mut self, item:DatabaseItem, response_sender:Sender<DatabaseReply>, auth_key:Option<String>) -> Result<(), SendError<DatabaseReply>> {
         self.changed_since_last_save = true;
-        let s_item = item.clone();
+        let mut s_item = item.clone();
         let (res, id) = self.database.add_request(item);
+        s_item.set_id(id.clone());
         let mut remove_clients = Vec::with_capacity(self.auth_sessions.len());
         match auth_key {
             Some(key) => for (user, data) in self.auth_sessions.iter_mut() {
