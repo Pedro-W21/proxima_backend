@@ -304,7 +304,7 @@ impl DatabaseItem {
 }
 
 
-#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum DatabaseItemID {
     Device(DeviceID),
     Chat(ChatID),
