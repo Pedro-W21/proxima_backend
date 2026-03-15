@@ -140,6 +140,9 @@ impl Chats {
         self.all_chats.insert(id, Chat::new_with_id(id, starting_context, session_id, origin_device, config));
         id
     }
+    pub fn remove_chat(&mut self, id:ChatID) -> bool {
+        self.all_chats.remove(&id).is_some()
+    }
     pub fn create_possible_chat(&self, starting_context:WholeContext, session_id:Option<SessionID>, origin_device:DeviceID, config:Option<ChatConfiguration>) -> Chat {
         let id = self.latest_id;
         Chat {

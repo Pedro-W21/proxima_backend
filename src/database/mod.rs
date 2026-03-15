@@ -204,15 +204,18 @@ impl ProxDatabase {
         match id {
             DatabaseItemID::Notification(notif) => {
                 self.notifications.remove_notification(notif);
-                DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }
             },
             DatabaseItemID::Job(job) => {
                 println!("[database] removing job {job}");
                 self.jobs.remove_job(job);
-                DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }
             },
-            _ => DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotDeletable(id)) }
+            DatabaseItemID::Chat(chat) => {
+                println!("[database] removing chat {chat}");
+                self.chats.remove_chat(chat);
+            },
+            _ => return DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotDeletable(id)) }
         }
+        DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }
     }
 }
 #[derive(Clone, Serialize, Deserialize)]
