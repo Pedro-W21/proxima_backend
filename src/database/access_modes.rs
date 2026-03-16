@@ -3,6 +3,8 @@ use std::collections::{HashMap, HashSet};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::database::memories::MemoryID;
+
 use super::tags::TagID;
 
 pub type AccessModeID = usize;
@@ -12,12 +14,13 @@ pub struct AccessMode {
     id:AccessModeID,
     pub tags:HashSet<TagID>,
     pub added_on:DateTime<Utc>,
-    pub name:String
+    pub name:String,
+    pub persistent_memory:Option<MemoryID>
 }
 
 impl AccessMode {
     pub fn new(id:AccessModeID, tags:HashSet<TagID>, name:String) -> Self {
-        Self { id, tags, name, added_on:Utc::now() }
+        Self { id, tags, name, added_on:Utc::now(), persistent_memory:None }
     }
     pub fn get_name(&self) -> &String {
         &self.name
@@ -41,7 +44,7 @@ pub struct AccessModes {
 
 impl AccessModes {
     pub fn new() -> Self {
-        Self { all_modes: HashMap::from([(0, AccessMode {added_on:Utc::now(),id:0, tags:HashSet::new(), name:String::from("global")})]), latest_id:1 }
+        Self { all_modes: HashMap::from([(0, AccessMode {added_on:Utc::now(),id:0, tags:HashSet::new(), name:String::from("global"), persistent_memory:None})]), latest_id:1, }
     }
     pub fn get_modes(&self) -> &HashMap<AccessModeID, AccessMode> {
         &self.all_modes

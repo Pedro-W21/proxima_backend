@@ -193,7 +193,7 @@ impl ProxDatabase {
             DatabaseItem::Folder(folder) => {let id = self.folders.add_folder_raw(folder); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Folder(id)) }, DatabaseItemID::Folder(id))},
             DatabaseItem::ChatConfig(config) => {let id = self.configs.add_config(config); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::ChatConfiguration(id)) }, DatabaseItemID::ChatConfiguration(id))},
             DatabaseItem::Media(media, data) => {let id = self.media.add_media(data, media.tags, media.access_modes, media.file_name, self.database_folder.clone(), media.media_type); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Media(id)) }, DatabaseItemID::Media(id))},
-            DatabaseItem::Memory(memory, data) => {let id = self.memories.add_memory(data, memory.access_modes, memory.tags, self.database_folder.clone()); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Memory(id)) }, DatabaseItemID::Memory(id))},
+            DatabaseItem::Memory(memory, data) => {let id = self.memories.add_memory(data, memory.access_modes, memory.tags, self.database_folder.clone(), memory.kind.clone()); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Memory(id)) }, DatabaseItemID::Memory(id))},
             DatabaseItem::UserData(user_data) => {self.personal_info.user_data = user_data; (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::UserData) }, DatabaseItemID::UserData)},
             DatabaseItem::UserStats(user_stats) => {self.personal_info.user_stats = user_stats; (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::UserStats) }, DatabaseItemID::UserStats)},
             DatabaseItem::Notification(notif) => {let id = self.notifications.add_notification(notif); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Notification(id)) }, DatabaseItemID::Notification(id))},
@@ -428,6 +428,8 @@ pub enum ToolRequest {
     SearchTagsByAccessModes(HashSet<AccessModeID>),
     AddTagToAccessMode(AccessModeID, TagID),
     GetLastXJobs(usize, HashSet<AccessModeID>),
+    UpdatePersistentMemoryFor(AccessModeID, String),
+    GetPersistentMemoryFor(AccessModeID)
 }
 
 pub enum InternalDBReq {
@@ -501,6 +503,7 @@ pub enum DatabaseReplyVariant {
 pub enum DatabaseError {
     SavingError,
     ItemNotFound(DatabaseItemID),
+    NoPersistentMemory,
     ItemNotDeletable(DatabaseItemID)
 }
 
@@ -798,6 +801,50 @@ impl DatabaseHandler {
                     }
                 }
                 response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedManyItems(jobs)})
+            },
+            ToolRequest::UpdatePersistentMemoryFor(access_mode_id, new_data) => {
+                if let Some(access_mode) = self.database.access_modes.get_modes_mut().get_mut(&access_mode_id) {
+                    if let Some(memory_id) = access_mode.persistent_memory {
+                        self.database.memories.update_memory(memory_id, new_data, self.database.database_folder.clone());
+                        let new_mem = self.database.memories.get_memory_with_data(memory_id, self.database.database_folder.clone()).unwrap();
+                        for (user, data) in self.auth_sessions.iter_mut() {
+                            data.pending_updates_send.send(ClientUpdate::ItemUpdate(DatabaseItemID::Memory(memory_id), DatabaseItem::Memory(new_mem.0.clone(), new_mem.1.clone())));
+                        }
+
+                        response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted})
+
+                    }
+                    else {
+                        let memory_id = self.database.memories.add_memory(new_data, HashSet::from([0, access_mode_id]), HashSet::new(), self.database.database_folder.clone(), memories::MemoryKind::Persistent);
+                        let new_mem = self.database.memories.get_memory_with_data(memory_id, self.database.database_folder.clone()).unwrap();
+                        access_mode.persistent_memory = Some(memory_id);
+                        for (user, data) in self.auth_sessions.iter_mut() {
+                            data.pending_updates_send.send(ClientUpdate::ItemUpdate(DatabaseItemID::AccessMode(access_mode_id), DatabaseItem::AccessMode(access_mode.clone())));
+                            data.pending_updates_send.send(ClientUpdate::ItemUpdate(DatabaseItemID::Memory(memory_id), DatabaseItem::Memory(new_mem.0.clone(), new_mem.1.clone())));
+                        }
+
+                        response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted})
+
+                    }
+                }
+                else {
+                    response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(DatabaseItemID::AccessMode(access_mode_id)))})
+                }
+            },
+            ToolRequest::GetPersistentMemoryFor(access_mode_id) => {
+                if let Some(access_mode) = self.database.access_modes.get_modes_mut().get_mut(&access_mode_id) {
+                    if let Some(memory_id) = access_mode.persistent_memory {
+                        let new_mem = self.database.memories.get_memory_with_data(memory_id, self.database.database_folder.clone()).unwrap();
+                        response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Memory(new_mem.0.clone(), new_mem.1.clone()))})
+                    }   
+                    else {
+                        response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::NoPersistentMemory)})  
+                    }
+                }
+                else {
+                    response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(DatabaseItemID::AccessMode(access_mode_id)))})
+                }
+
             }
         }
     }

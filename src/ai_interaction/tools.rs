@@ -5,7 +5,7 @@ use html_parser::{Dom, Element, Node};
 use rand::{Rng, rng};
 use serde::{Deserialize, Serialize};
 
-use crate::{ai_interaction::{AiEndpointSender, endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}}, database::{DatabaseError, DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, ToolRequest, access_modes::AccessModeID, chats::{Chat, SessionType}, configuration::{ChatConfiguration, ChatSetting}, context::{ContextData, ContextPart, ContextPosition, WholeContext}, jobs::{Job, JobID, JobRepeat, JobTiming, JobType}, memories::{Memory, MemoryRequest}}};
+use crate::{ai_interaction::{AiEndpointSender, endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}}, database::{DatabaseError, DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, ToolRequest, access_modes::AccessModeID, chats::{Chat, SessionType}, configuration::{ChatConfiguration, ChatSetting}, context::{ContextData, ContextPart, ContextPosition, WholeContext}, jobs::{Job, JobID, JobRepeat, JobTiming, JobType}, memories::{Memory, MemoryKind, MemoryRequest}}};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Tools {
@@ -83,6 +83,9 @@ impl Tools {
                 _ => return Err(ProximaToolCallError::Parsing(ToolParsingError::NotAnElement).generate_error_output("Tool couldn't be parsed".to_string(), "Couldn't be parsed".to_string()))
             }
             if let Some(tool) = ProximaTool::try_from_string(tool_name.clone()) {
+                if !self.used_tools.contains(&tool) {
+                    return Err(ProximaToolCallError::Parsing(ToolParsingError::NotAnElement).generate_error_output("Tool not authorized for this chat".to_string(), "Not parsed".to_string()));
+                }
                 let mut action = String::new();
                 match &call_element.children[1] {
                     Node::Element(tool_element) => match tool_element.name.trim() {
@@ -200,7 +203,7 @@ impl ProximaTool {
                 _ => false,
             },
             Self::Memory => match action.trim() {
-                "retrieve" | "record" => true,
+                "retrieve" | "record" | "persistent_add" | "persistent_remove" | "persistent_get" => true,
                 _ => false,
             },
             Self::Jobs => match action.trim() {
@@ -849,7 +852,7 @@ async fn memory_tool(mode:String, input:String, database_connection:DatabaseSend
             }
         },
         "record" => {
-            let memory = Memory::new(HashSet::from([access_mode_id]), HashSet::new());
+            let memory = Memory::new(HashSet::from([access_mode_id]), HashSet::new(), MemoryKind::Fleeting);
             let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Add(DatabaseItem::Memory(memory, input)), None);
             database_connection.send_prio(db_req);
             
@@ -861,6 +864,92 @@ async fn memory_tool(mode:String, input:String, database_connection:DatabaseSend
                 _ => Err(ProximaToolCallError::Network(format!("Database couldn't be reached to record the memory")))
             }
         },
+        "persistent_get" => {
+            let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::ToolRequest(ToolRequest::GetPersistentMemoryFor(access_mode_id)), None);
+            database_connection.send_prio(db_req);
+            
+            match bad_async_recv(db_recv).await.variant {
+                DatabaseReplyVariant::ReturnedItem(DatabaseItem::Memory(mem, data)) => {
+                    let mut i = 0;
+                    Ok((format!("\n{}\n", data.lines().map(|line| {let out = format!("{i} {}\n", line); i += 1; out}).collect::<Vec<String>>().concat()), None))   
+                },
+                DatabaseReplyVariant::Error(DatabaseError::NoPersistentMemory) => {
+                    Ok((format!("No persistent memory yet"), None))
+                },
+                _ => Err(ProximaToolCallError::Network(format!("Database couldn't be reached to retrieve persistent memory")))
+            }
+        },
+        "persistent_add" => {
+            let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::ToolRequest(ToolRequest::GetPersistentMemoryFor(access_mode_id)), None);
+            database_connection.send_prio(db_req);
+            
+            match bad_async_recv(db_recv).await.variant {
+                DatabaseReplyVariant::ReturnedItem(DatabaseItem::Memory(mem, mut data)) => {
+                    let to_add = &input;
+                    let current_size = data.lines().count();
+                    let total_added = input.lines().count();
+                    data = format!("{}\n{}", data.trim_end(), to_add.trim_start());
+                    let mut i = current_size;
+                    let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::ToolRequest(ToolRequest::UpdatePersistentMemoryFor(access_mode_id, data)), None);
+                    database_connection.send_prio(db_req);
+                    match bad_async_recv(db_recv).await.variant {
+                        DatabaseReplyVariant::RequestExecuted => Ok((format!("Successfully added {total_added} lines with numbers : {}", to_add.lines().map(|line| {let out = format!("{i}, "); i += 1; out}).collect::<Vec<String>>().concat()), None)),
+                        _ => Err(ProximaToolCallError::Network(format!("Database couldn't be reached to add to persistent memory"))),
+                    }
+                    
+                },
+                DatabaseReplyVariant::Error(DatabaseError::NoPersistentMemory) => {
+                    let to_add = &input;
+                    let total_added = input.lines().count();
+                    let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::ToolRequest(ToolRequest::UpdatePersistentMemoryFor(access_mode_id, input.clone())), None);
+                    database_connection.send_prio(db_req);
+                    let mut i = 0;
+                    match bad_async_recv(db_recv).await.variant {
+                        DatabaseReplyVariant::RequestExecuted => Ok((format!("Successfully added {total_added} lines with numbers : {}", to_add.lines().map(|line| {let out = format!("{i}, "); i += 1; out}).collect::<Vec<String>>().concat()), None)),
+                        _ => Err(ProximaToolCallError::Network(format!("Database couldn't be reached to add to persistent memory"))),
+                    }
+                },
+                _ => Err(ProximaToolCallError::Network(format!("Database couldn't be reached to get current persistent memory to add to it")))
+            }
+        }
+        "persistent_remove" => {
+            let mut numbers = Vec::with_capacity(32);
+            for num in input.split_whitespace() {
+                if let Ok(number) = num.parse::<usize>() {
+                    numbers.push(number);
+                }
+                else {
+                    return Err(ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: num.to_string(), issue: "This is not a positive integer".to_string() }))
+                }
+            }
+            numbers.sort();
+            numbers.reverse();
+            let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::ToolRequest(ToolRequest::GetPersistentMemoryFor(access_mode_id)), None);
+            database_connection.send_prio(db_req);
+
+            match bad_async_recv(db_recv).await.variant {
+                DatabaseReplyVariant::ReturnedItem(DatabaseItem::Memory(mem, mut data)) => {
+                    let mut data_lines = data.lines().collect::<Vec<&str>>();
+                    for number in numbers {
+                        if number < data_lines.len() {
+                            data_lines.remove(number);
+                        }
+                    }
+                    let new_data = data_lines.iter().map(|line| {let out = format!("{}\n", line); out}).collect::<Vec<String>>().concat();
+                    let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::ToolRequest(ToolRequest::UpdatePersistentMemoryFor(access_mode_id, new_data)), None);
+                    database_connection.send_prio(db_req);
+                    match bad_async_recv(db_recv).await.variant {
+                        DatabaseReplyVariant::RequestExecuted => Ok((format!("Lines successfully removed"), None)),
+                        _ => Err(ProximaToolCallError::Network(format!("Database couldn't be reached to add to persistent memory"))),
+                    }
+                    
+                },
+                DatabaseReplyVariant::Error(DatabaseError::NoPersistentMemory) => {
+                    Ok((format!("Lines successfully removed\n"), None))
+                },
+                _ => Err(ProximaToolCallError::Network(format!("Database couldn't be reached to get current persistent memory to add to it")))
+            }
+        }
         _ => panic!("Impossible by that point, mode={mode}")
     }
 }

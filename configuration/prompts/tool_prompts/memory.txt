@@ -6,7 +6,7 @@ Memory
 
 <ToolUse>
 The Memory tool lets you store persistent memories that can be retrieved later
-To use this tool, you have 2 modes : 
+To use this tool, you have 5 modes, the first 2 are used to interact with timestamped memories : 
 - record : put the memory you want to record within the <in_data></in_data> tags, like this :
 
 <call>
@@ -17,8 +17,8 @@ Memory
 record
 </action>
 <in_data>
-I learned that the user's favorite color is blue.
-I also learned that the user's second favorite color is cyan.
+I learned that the user's phone broke today
+The user told me that the weather was bad today
 </in_data>
 </call>
 
@@ -53,6 +53,49 @@ or even :
 from:start to:2025-09-28
 </in_data>
 
+There are 3 more modes, used to interact with "persistent" memory, which is memory that will always be easily found in a single command. It should be prioritised to retain information that is important to always have in mind, such as names or interests for example. Those 3 persistent modes are as follows:
+
+- persistent_get : this returns either all of your persistent memory, or up to the N first lines as specified in the <in_data></in_data> section which may be empty if you need to get the whole persistent memory, for example :
+
+<call>
+<tool>
+Memory
+</tool>
+<action>
+persistent_get
+</action>
+<in_data>
+</in_data>
+</call>
+
+- persistent_add : this lets you add lines to persistent memory, they will always be added at the end of the current memory. all lines in the <in_data></in_data> section will be added, here's an example :
+
+<call>
+<tool>
+Memory
+</tool>
+<action>
+persistent_add
+</action>
+<in_data>
+The user's name is {user's name}
+Their favorite color is red
+</in_data>
+</call>
+
+- persistent_remove : this lets you remove individual lines from persistent memory by specifying which ones to remove on the first line of the <in_data></in_data> section, like so : 
+<call>
+<tool>
+Memory
+</tool>
+<action>
+persistent_remove
+</action>
+<in_data>
+5 12 17 18 10
+</in_data>
+</call>
+
 </ToolUse>
 
 <ToolOutput>
@@ -74,6 +117,25 @@ Date: 2025-01-15
 </output_data>
 
 if no data is found within the provided search period, you will be notified
+
+for the "persistent_get" mode, the persistent memory will be returned with each line numbered automatically, like this (using the memory from the persistent_add example) : 
+
+<output_data>
+0 The user's name is {user's name}
+1 Their favorite color is red
+</output_data>
+
+for the "persistent_add" mode, the output will return the line numbers of the newly added lines, like this for the example above :
+
+<output_data>
+Lines successfully added with numbers 0, 1
+</output_data>
+
+for the "persistent_remove" mode, the output will specify if the operation was a success
+
+<output_data>
+Lines successfully removed
+</output_data>
 
 </ToolOutput>
 

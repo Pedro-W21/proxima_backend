@@ -8,7 +8,7 @@ use crate::database::{access_modes::AccessModeID, tags::TagID};
 
 pub type MemoryID = usize;
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct Memory {
     pub add_date:DateTime<Utc>,
     pub last_update:DateTime<Utc>,
@@ -16,11 +16,17 @@ pub struct Memory {
     pub tags:HashSet<TagID>,
     file_name:String,
     pub id:MemoryID,
+    pub kind:MemoryKind
+}
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub enum MemoryKind {
+    Persistent,
+    Fleeting,
 }
 
 impl Memory {
-    pub fn new(access_modes:HashSet<AccessModeID>, tags:HashSet<TagID>) -> Self {
-        Self { add_date: Utc::now(), last_update: Utc::now(), access_modes, tags, file_name: String::new(), id: 0 }
+    pub fn new(access_modes:HashSet<AccessModeID>, tags:HashSet<TagID>, kind:MemoryKind) -> Self {
+        Self { add_date: Utc::now(), last_update: Utc::now(), access_modes, tags, file_name: String::new(), id: 0, kind }
     }
 }
 
@@ -34,18 +40,18 @@ impl Memories {
     pub fn new() -> Self {
         Self { memories: HashMap::with_capacity(256), last_memory_id: 0 }
     }
-    pub fn add_memory(&mut self, data:String, mut access_modes:HashSet<AccessModeID>, tags:HashSet<TagID>, proxima_data_path:PathBuf) -> MemoryID {
+    pub fn add_memory(&mut self, data:String, mut access_modes:HashSet<AccessModeID>, tags:HashSet<TagID>, proxima_data_path:PathBuf, kind:MemoryKind) -> MemoryID {
         let id = self.last_memory_id;
         self.last_memory_id += 1;
         access_modes.insert(0);
         let mut found_path = false;
         let mut test_path = proxima_data_path.clone();
-        let mut file_name = format!("{}{id}.txt", access_modes.iter().map(|mode| {format!("{mode}_")}).collect::<Vec<String>>().concat());
+        let mut file_name = format!("{}{id}{}.txt", access_modes.iter().map(|mode| {format!("{mode}_")}).collect::<Vec<String>>().concat(), if let MemoryKind::Persistent = kind {"_p"} else {"_f"});
         while !found_path {
             test_path.push(format!("memories/{}", file_name.clone()));
             if test_path.exists() {
                 test_path = proxima_data_path.clone();
-                file_name = format!("{}.txt", id + rng().random_range(0..100));
+                file_name = format!("{}{}{}.txt", access_modes.iter().map(|mode| {format!("{mode}_")}).collect::<Vec<String>>().concat(), id + rng().random_range(0..100), if let MemoryKind::Persistent = kind {"_p"} else {"_f"});
             }
             else {
                 found_path = true;
@@ -62,7 +68,8 @@ impl Memories {
             add_date:time,
             last_update:time,
             id,
-            file_name
+            file_name,
+            kind
         };
         self.memories.insert(id, memory);
         id
@@ -80,7 +87,7 @@ impl Memories {
     pub fn retrieve_ids(&self, request:MemoryRequest) -> Vec<MemoryID> {
         let mut retrieved = Vec::with_capacity(4);
         for (id, memory) in &self.memories {
-            if memory.last_update >= request.from && memory.last_update <= request.to && memory.access_modes.intersection(&request.access_modes).count() > 0 {
+            if memory.last_update >= request.from && memory.last_update <= request.to && memory.access_modes.intersection(&request.access_modes).count() > 0 && let MemoryKind::Fleeting = memory.kind {
                 match &request.tags {
                     Some(tags) => if memory.tags.intersection(tags).count() > 0 {
                         retrieved.push(*id);
