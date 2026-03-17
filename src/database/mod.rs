@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use tags::{Tag, TagID, Tags};
 use user::{PersonalInformation, UserData};
 
-use crate::{ai_interaction::create_prompt::{AgentPrompt}, database::{configuration::{ChatConfigID, ChatConfiguration, ChatConfigurations}, context::WholeContext, jobs::{Job, JobID, Jobs}, loading_saving::{load_from_disk, save_to_disk}, media::{Media, MediaHash, MediaStorage}, memories::{Memories, Memory, MemoryID, MemoryRequest}, notifications::{Notification, NotificationID, Notifications}, user::UserStats}};
+use crate::{ai_interaction::create_prompt::AgentPrompt, database::{configuration::{ChatConfigID, ChatConfiguration, ChatConfigurations}, context::WholeContext, jobs::{Job, JobID, Jobs}, loading_saving::{load_from_disk, save_to_disk}, media::{Media, MediaHash, MediaStorage}, memories::{MemReqMax, Memories, Memory, MemoryID, MemoryRequest}, notifications::{Notification, NotificationID, Notifications}, user::UserStats}};
 
 pub mod tags;
 pub mod folders;
@@ -429,7 +429,8 @@ pub enum ToolRequest {
     AddTagToAccessMode(AccessModeID, TagID),
     GetLastXJobs(usize, HashSet<AccessModeID>),
     UpdatePersistentMemoryFor(AccessModeID, String),
-    GetPersistentMemoryFor(AccessModeID)
+    GetPersistentMemoryFor(AccessModeID),
+    GetAutoMemoryFor(AccessModeID, usize),
 }
 
 pub enum InternalDBReq {
@@ -845,6 +846,25 @@ impl DatabaseHandler {
                     response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(DatabaseItemID::AccessMode(access_mode_id)))})
                 }
 
+            },
+            ToolRequest::GetAutoMemoryFor(access_mode_id, max_last_memories) => {
+                if let Some(access_mode) = self.database.access_modes.get_modes_mut().get_mut(&access_mode_id) {
+                    let persistent = if let Some(memory_id) = access_mode.persistent_memory {
+                        let new_mem = self.database.memories.get_memory_with_data(memory_id, self.database.database_folder.clone()).unwrap();
+                        DatabaseItem::Memory(new_mem.0.clone(), new_mem.1)
+                    }   
+                    else {
+                        DatabaseItem::AccessMode(access_mode.clone())
+                    };
+                    let fleeting = self.database.memories.retrieve_ids(MemoryRequest::new(Utc::now() - TimeDelta::weeks(12000), Utc::now(), HashSet::from([access_mode_id]), None, MemReqMax::MaxRecentFirst(10)));
+                    let fleeting = self.database.memories.retrieve_data_from_ids(fleeting, self.database.database_folder.clone());
+                    let mut fleeting = fleeting.iter().map(|(mem, txt)| {DatabaseItem::Memory(mem.clone(), txt.clone())}).collect::<Vec<DatabaseItem>>();
+                    fleeting.insert(0, persistent);
+                    response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedManyItems(fleeting)})
+                }
+                else {
+                    response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(DatabaseItemID::AccessMode(access_mode_id)))})
+                }
             }
         }
     }

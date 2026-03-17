@@ -5,7 +5,7 @@ use html_parser::{Dom, Element, Node};
 use rand::{Rng, rng};
 use serde::{Deserialize, Serialize};
 
-use crate::{ai_interaction::{AiEndpointSender, endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}}, database::{DatabaseError, DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, ToolRequest, access_modes::AccessModeID, chats::{Chat, SessionType}, configuration::{ChatConfiguration, ChatSetting}, context::{ContextData, ContextPart, ContextPosition, ToolPart, ToolPartKind, WholeContext}, jobs::{Job, JobID, JobRepeat, JobTiming, JobType}, memories::{Memory, MemoryKind, MemoryRequest}}};
+use crate::{ai_interaction::{AiEndpointSender, endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}}, database::{DatabaseError, DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, ToolRequest, access_modes::AccessModeID, chats::{Chat, SessionType}, configuration::{ChatConfiguration, ChatSetting}, context::{ContextData, ContextPart, ContextPosition, ToolPart, ToolPartKind, WholeContext}, jobs::{Job, JobID, JobRepeat, JobTiming, JobType}, memories::{MemReqMax, Memory, MemoryKind, MemoryRequest}}};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Tools {
@@ -59,6 +59,15 @@ impl Tools {
             parts.push(ContextPart::new(vec![data.get_data_to_insert()], ContextPosition::Tool(ToolPart::new(ToolPartKind::DataInsert, Some(key.clone())))) );
         }
         parts
+    }
+    pub fn has_automatic_memory(&self) -> bool {
+        for (tool, data) in &self.tool_data {
+            match data {
+                ProximaToolData::Memory { mode: MemoryToolMode::Automatic } => return true,
+                _ => () 
+            }
+        }
+        false
     }
     pub fn get_tool_calling_sys_prompt(&self) -> ContextPart {
         let mut base = String::from_utf8(Vec::from(include_bytes!("../../configuration/prompts/tool_prompts/tool_use.txt"))).unwrap();
@@ -825,7 +834,7 @@ async fn memory_tool(mode:String, input:String, database_connection:DatabaseSend
     match mode.trim() {
         "retrieve" => {
             let (from, to) = parse_retrieval_date(input)?;
-            let request = MemoryRequest::new(from, to, HashSet::from([access_mode_id]), None);
+            let request = MemoryRequest::new(from, to, HashSet::from([access_mode_id]), None, MemReqMax::Infinite);
 
             let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::ToolRequest(ToolRequest::MemoryRequest(request)), None);
             database_connection.send_prio(db_req);

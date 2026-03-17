@@ -3,7 +3,7 @@ use std::{collections::HashSet, sync::{mpmc::{self, Receiver, Sender, channel}, 
 use backend_api::BackendAPI;
 use endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponse, EndpointResponseVariant};
 
-use crate::{ai_interaction::{backend_api::BackendError, tools::{RuntimeToolData, bad_async_recv, handle_tool_calling_response, is_valid_tool_calling_response, looks_like_nonstandard_final_response}}, database::{DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, access_modes::AccessModeID, chats::{ChatID, SessionType}, context::{ContextData, ContextPart, ContextPosition, WholeContext}, jobs::{Job, JobRepeat, JobTiming, JobType}, notifications::{Notification, NotificationReason}}};
+use crate::{ai_interaction::{backend_api::BackendError, tools::{ProximaTool, RuntimeToolData, bad_async_recv, handle_tool_calling_response, is_valid_tool_calling_response, looks_like_nonstandard_final_response}}, database::{DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, ToolRequest, access_modes::AccessModeID, chats::{ChatID, SessionType}, context::{ContextData, ContextPart, ContextPosition, ToolPart, ToolPartKind, WholeContext}, jobs::{Job, JobRepeat, JobTiming, JobType}, notifications::{Notification, NotificationReason}}};
 
 use crate::ai_interaction::endpoint_api::EndpointError;
 pub mod endpoint_api;
@@ -74,6 +74,10 @@ impl<B:BackendAPI> RequestHandler<B> {
                 match chat_settings {
                     Some(settings) => {
                         println!("in settings response cycle");
+
+                        if let Some(tools) = settings.get_tools() && tools.has_automatic_memory() {
+                            update_auto_memory(&mut whole_context, self.database_sender.clone(), access_mode).await;
+                        }
                         let id = self.backend.send_new_prompt(whole_context.clone(), session_type, Some(settings.clone()))?;
                         println!("Sent prompt !!!");
                         let mut response = self.backend.get_response_to_latest_prompt_for(id).await;
@@ -91,6 +95,9 @@ impl<B:BackendAPI> RequestHandler<B> {
                                     }
                                     new_tools = output_tools;
                                     println!("in settings response cycle");
+                                    if tools.has_automatic_memory() {
+                                        update_auto_memory(&mut whole_context, self.database_sender.clone(), access_mode).await;
+                                    }
                                     let id = self.backend.send_new_prompt(whole_context.clone(), session_type, Some(settings.clone()))?;
                                     println!("Sent prompt !!!");
                                     response = self.backend.get_response_to_latest_prompt_for(id).await;
@@ -139,6 +146,9 @@ impl<B:BackendAPI> RequestHandler<B> {
                 match chat_settings {
                     Some(settings) => {
                         println!("in settings response cycle");
+                        if let Some(tools) = settings.get_tools() && tools.has_automatic_memory() {
+                            update_auto_memory(&mut whole_context, self.database_sender.clone(), access_mode).await;
+                        }
                         let (id, receiver) = self.backend.send_new_prompt_streaming(whole_context.clone(), session_type, Some(settings.clone()))?;
                         println!("Sent prompt !!!");
                         send_streaming_response(receiver, ContextPosition::AI, self.response_sender.clone(), rep_sender.clone()).await;
@@ -159,6 +169,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                         response.concatenate_text();
                         match settings.get_tools() {
                             Some(tools) => {
+
                                 println!("Got tools, is tool calling response : {}, looks like nonstandard : {}", is_valid_tool_calling_response(&response), looks_like_nonstandard_final_response(&response));
                                 let mut new_tools = tools.clone();
                                 let mut i = 0;
@@ -173,6 +184,9 @@ impl<B:BackendAPI> RequestHandler<B> {
                                     }
                                     new_tools = output_tools;
                                     println!("in settings response cycle");
+                                    if tools.has_automatic_memory() {
+                                        update_auto_memory(&mut whole_context, self.database_sender.clone(), access_mode).await;
+                                    }
                                     let (id, receiver) = self.backend.send_new_prompt_streaming(whole_context.clone(), session_type, Some(settings.clone()))?;
 
                                     send_streaming_response(receiver, ContextPosition::AI, self.response_sender.clone(), rep_sender.clone()).await;
@@ -290,6 +304,38 @@ async fn send_streaming_response(receiver:Receiver<ContextData>, position:Contex
 #[cfg(all(target_family = "wasm"))]
 async fn send_streaming_response(receiver:Receiver<ContextData>, position:ContextPosition, sender:Sender<EndpointResponse>, total_sender:Sender<ContextPart>) {
     todo!("Support streaming responses on wasm")
+}
+
+async fn update_auto_memory(context:&mut WholeContext, db_sender:DatabaseSender, access_mode:AccessModeID) {
+    for part in context.get_parts_mut() {
+        if let ContextPosition::Tool(ToolPart { kind:ToolPartKind::DataInsert, related_tool:Some(ProximaTool::Memory) }) = part.get_position().clone() {
+            part.get_data_mut().clear();
+            let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::ToolRequest(ToolRequest::GetAutoMemoryFor(access_mode, 10)), None);
+            db_sender.send_prio(db_req);
+
+            let addition = match bad_async_recv(db_recv).await.variant {
+                DatabaseReplyVariant::ReturnedManyItems(items) => {
+
+                    let mut total = match &items[0] {
+                        DatabaseItem::AccessMode(_) => format!("No persistent memory"),
+                        DatabaseItem::Memory(_, txt) => txt.lines().enumerate().map(|(i, line)| {let out = format!("{i} {}\n", line); out}).collect::<Vec<String>>().concat(),
+                        _ => panic!("Impossible")
+                    };
+                    if let Some(items) = items.get(1..) {
+                        for item in items {
+                            if let DatabaseItem::Memory(mem, txt) = item {
+                                total += &format!("\n----\n{}\n{txt}\n", mem.add_date);
+                            }
+                        }
+                    }
+                    total
+                },
+                _ => format!("Database unaccessible for memory update")
+            };
+            part.add_data(ContextData::Text(format!("<automatic_memory>\n{addition}\n<automatic_memory>\n")));
+            break;
+        }
+    }
 }
 
 
