@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::database::{configuration::{ChatConfiguration, ChatSetting, RepeatPosition}, media::MediaHash};
+use crate::{ai_interaction::tools::ProximaTool, database::{configuration::{ChatConfiguration, ChatSetting, RepeatPosition}, media::MediaHash}};
 
 pub type Prompt = ContextPart;
 pub type Response = ContextPart;
@@ -85,7 +85,26 @@ pub enum ContextPosition {
     User,
     AI,
     Total,
-    Tool
+    Tool(ToolPart)
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct ToolPart {
+    pub kind:ToolPartKind,
+    pub related_tool:Option<ProximaTool>
+}
+
+impl ToolPart {
+    pub fn new(kind:ToolPartKind, related_tool:Option<ProximaTool>) -> Self {
+        Self { kind, related_tool }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub enum ToolPartKind {
+    DataInsert,
+    Error,
+    Output
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -146,7 +165,8 @@ impl WholeContext {
         }
         match settings.get_tools() {
             Some(tools) => {
-                self.parts.push(tools.get_tool_data_insert());
+                let mut other = tools.get_tool_data_insert();
+                self.parts.append(&mut other);
             },
             None => ()
         }

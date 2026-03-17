@@ -94,7 +94,7 @@ impl BackendAPI for OpenAIFullBackend {
                 ContextPosition::AI => {
                     messages.push(ChatCompletionMessage { role: MessageRole::assistant, content: Content::Text(final_content), name:None, tool_calls:None, tool_call_id:None });
                 },
-                ContextPosition::Total | ContextPosition::Tool => {
+                ContextPosition::Total | ContextPosition::Tool(_) => {
                     messages.push(ChatCompletionMessage { role: MessageRole::tool, content: Content::Text(final_content), name:None, tool_calls:None, tool_call_id:None });
                 }
             }
@@ -287,7 +287,7 @@ impl BackendAPI for OpenAIFullBackend {
                 ContextPosition::AI => {
                     messages.push(ChatCompletionMessage { role: MessageRole::assistant, content: Content::Text(final_content), name:None, tool_calls:None, tool_call_id:None });
                 },
-                ContextPosition::Total | ContextPosition::Tool => {
+                ContextPosition::Total | ContextPosition::Tool(_) => {
                     messages.push(ChatCompletionMessage { role: MessageRole::tool, content: Content::Text(final_content), name:None, tool_calls:None, tool_call_id:None });
                 }
             }

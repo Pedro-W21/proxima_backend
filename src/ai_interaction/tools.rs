@@ -5,7 +5,7 @@ use html_parser::{Dom, Element, Node};
 use rand::{Rng, rng};
 use serde::{Deserialize, Serialize};
 
-use crate::{ai_interaction::{AiEndpointSender, endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}}, database::{DatabaseError, DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, ToolRequest, access_modes::AccessModeID, chats::{Chat, SessionType}, configuration::{ChatConfiguration, ChatSetting}, context::{ContextData, ContextPart, ContextPosition, WholeContext}, jobs::{Job, JobID, JobRepeat, JobTiming, JobType}, memories::{Memory, MemoryKind, MemoryRequest}}};
+use crate::{ai_interaction::{AiEndpointSender, endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}}, database::{DatabaseError, DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, ToolRequest, access_modes::AccessModeID, chats::{Chat, SessionType}, configuration::{ChatConfiguration, ChatSetting}, context::{ContextData, ContextPart, ContextPosition, ToolPart, ToolPartKind, WholeContext}, jobs::{Job, JobID, JobRepeat, JobTiming, JobType}, memories::{Memory, MemoryKind, MemoryRequest}}};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Tools {
@@ -53,12 +53,12 @@ impl Tools {
             None
         }
     }
-    pub fn get_tool_data_insert(&self) -> ContextPart {
-        let mut part = ContextPart::new(vec![], ContextPosition::Tool);
+    pub fn get_tool_data_insert(&self) -> Vec<ContextPart> {
+        let mut parts = Vec::with_capacity(self.tool_data.len());
         for (key, data) in &self.tool_data {
-            part.add_data(data.get_data_to_insert());
+            parts.push(ContextPart::new(vec![data.get_data_to_insert()], ContextPosition::Tool(ToolPart::new(ToolPartKind::DataInsert, Some(key.clone())))) );
         }
-        part
+        parts
     }
     pub fn get_tool_calling_sys_prompt(&self) -> ContextPart {
         let mut base = String::from_utf8(Vec::from(include_bytes!("../../configuration/prompts/tool_prompts/tool_use.txt"))).unwrap();
@@ -140,7 +140,7 @@ pub enum ProximaToolCallError {
 
 impl ProximaToolCallError {
     pub fn generate_error_output(&self, tool:String, action:String) -> ContextPart {
-        ContextPart::new(vec![self.generate_error_output_just_context_data(tool, action)], ContextPosition::Tool)  
+        ContextPart::new(vec![self.generate_error_output_just_context_data(tool, action)], ContextPosition::Tool(ToolPart::new(ToolPartKind::Error, None)))  
     }
     pub fn generate_error_output_just_context_data(&self, tool:String, action:String) -> ContextData{
         ContextData::Text(format!("<error><tool>{tool}</tool><action>{action}</action><error_data>{:?}</error_data></error>", self))
@@ -888,7 +888,7 @@ async fn memory_tool(mode:String, input:String, database_connection:DatabaseSend
                     let to_add = &input;
                     let current_size = data.lines().count();
                     let total_added = input.lines().count();
-                    data = format!("{}\n{}", data.trim_end(), to_add.trim_start());
+                    data = format!("{}\n{}", data.trim(), to_add.trim());
                     let mut i = current_size;
                     let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::ToolRequest(ToolRequest::UpdatePersistentMemoryFor(access_mode_id, data)), None);
                     database_connection.send_prio(db_req);
@@ -1210,6 +1210,13 @@ async fn create_job_mode(input_lines:Vec<String>, database_connection:DatabaseSe
 pub enum ProximaToolData {
     LocalMemory(HashMap<String, String>),
     Agent(AgentToolData),
+    Memory {mode:MemoryToolMode},
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Copy)]
+pub enum MemoryToolMode {
+    Automatic,
+    Active
 }
 
 impl ProximaToolData {
@@ -1217,6 +1224,10 @@ impl ProximaToolData {
         match self {
             Self::LocalMemory(key_value) => ContextData::Text(format!("<LocalMemory> local memory data : {:?}</LocalMemory>", key_value.clone())),
             Self::Agent(data) => ContextData::Text(format!("")),
+            Self::Memory { mode } => match mode {
+                MemoryToolMode::Active => ContextData::Text(format!("")),
+                MemoryToolMode::Automatic => ContextData::Text(format!("<memory_data>\n</memory_data>")),
+            }
         }
     }
     pub fn get_local_mem_data(&self) -> HashMap<String, String> {
@@ -1263,7 +1274,7 @@ pub enum AgentStatus {
 
 
 pub async fn handle_tool_calling_response(response:ContextPart, tools:Tools, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData, access_mode_id:AccessModeID) -> (ContextPart, Tools) {
-    let mut out_context = ContextPart::new(vec![ContextData::Text(format!("<outputs>\n"))], ContextPosition::Tool);
+    let mut out_context = ContextPart::new(vec![ContextData::Text(format!("<outputs>\n"))], ContextPosition::Tool(ToolPart::new(ToolPartKind::Output, None)));
     let mut out_tools = tools.clone();
     for data in response.get_data() {
         match data {
@@ -1346,9 +1357,9 @@ async fn handle_tool_calling_context_data(text:&String, mut tools:Tools, databas
                     _ => ()
                 }
             }
-            (ContextPart::new(data, ContextPosition::Tool), tools)
+            (ContextPart::new(data, ContextPosition::Tool(ToolPart::new(ToolPartKind::Output, None))), tools)
         },
-        Err(_) => (ContextPart::new(vec![], ContextPosition::Tool), tools)
+        Err(_) => (ContextPart::new(vec![], ContextPosition::Tool(ToolPart::new(ToolPartKind::Output, None))), tools)
     }
 }
 

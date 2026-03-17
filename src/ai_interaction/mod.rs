@@ -86,7 +86,9 @@ impl<B:BackendAPI> RequestHandler<B> {
                                     let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone(), self.database_sender.clone(), self.self_sender.clone(), &self.runtime_tool_data, access_mode).await;
                                     whole_context.add_part(response.clone());
                                     whole_context.add_part(added_context);
-                                    whole_context.add_part(new_tools.get_tool_data_insert());
+                                    for part in new_tools.get_tool_data_insert() {
+                                        whole_context.add_part(part);
+                                    }
                                     new_tools = output_tools;
                                     println!("in settings response cycle");
                                     let id = self.backend.send_new_prompt(whole_context.clone(), session_type, Some(settings.clone()))?;
@@ -165,8 +167,10 @@ impl<B:BackendAPI> RequestHandler<B> {
                                     whole_context.add_part(response.clone());
                                     send_context_part_streaming_blocking(added_context.clone(), self.response_sender.clone());
                                     whole_context.add_part(added_context);
-                                    send_context_part_streaming_blocking(new_tools.get_tool_data_insert(), self.response_sender.clone());
-                                    whole_context.add_part(new_tools.get_tool_data_insert());
+                                    for part in new_tools.get_tool_data_insert() {
+                                        send_context_part_streaming_blocking(part.clone(), self.response_sender.clone());
+                                        whole_context.add_part(part);
+                                    }
                                     new_tools = output_tools;
                                     println!("in settings response cycle");
                                     let (id, receiver) = self.backend.send_new_prompt_streaming(whole_context.clone(), session_type, Some(settings.clone()))?;
