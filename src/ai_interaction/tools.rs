@@ -408,7 +408,7 @@ impl ProximaTool {
                 Ok((generate_call_output("RNG".to_string(), action.to_string(), output_str), new_data))
             },
             Self::Memory => {
-                let (output_str, new_data) = memory_tool(action.to_string(), input, database_connection, access_mode_id).await?;
+                let (output_str, new_data) = memory_tool(action.to_string(), data, input, database_connection, access_mode_id).await?;
                 Ok((generate_call_output("Memory".to_string(), action.to_string(), output_str), new_data))
             },
             Self::Jobs => {
@@ -830,7 +830,7 @@ fn parse_retrieval_date(input:String) -> Result<(DateTime<Utc>, DateTime<Utc>), 
     }
 }
 
-async fn memory_tool(mode:String, input:String, database_connection:DatabaseSender, access_mode_id:AccessModeID) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
+async fn memory_tool(mode:String, tool_data:Option<&ProximaToolData>, input:String, database_connection:DatabaseSender, access_mode_id:AccessModeID) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
     match mode.trim() {
         "retrieve" => {
             let (from, to) = parse_retrieval_date(input)?;
@@ -855,7 +855,7 @@ async fn memory_tool(mode:String, input:String, database_connection:DatabaseSend
                     else {
                         output = format!("No memories were found for this search query");
                     }
-                    Ok((output, None))   
+                    Ok((output, tool_data.cloned()))   
                 },
                 _ => Err(ProximaToolCallError::Network(format!("Database couldn't be reached to record the memory")))
             }
@@ -868,7 +868,7 @@ async fn memory_tool(mode:String, input:String, database_connection:DatabaseSend
             match bad_async_recv(db_recv).await.variant {
                 DatabaseReplyVariant::AddedItem(_) => {
                     let timestamp = Utc::now();
-                    Ok((format!("Memory successfully recorded on {timestamp}"), None))   
+                    Ok((format!("Memory successfully recorded on {timestamp}"), tool_data.cloned()))   
                 },
                 _ => Err(ProximaToolCallError::Network(format!("Database couldn't be reached to record the memory")))
             }
@@ -880,10 +880,10 @@ async fn memory_tool(mode:String, input:String, database_connection:DatabaseSend
             match bad_async_recv(db_recv).await.variant {
                 DatabaseReplyVariant::ReturnedItem(DatabaseItem::Memory(mem, data)) => {
                     let mut i = 0;
-                    Ok((format!("\n{}\n", data.lines().map(|line| {let out = format!("{i} {}\n", line); i += 1; out}).collect::<Vec<String>>().concat()), None))   
+                    Ok((format!("\n{}\n", data.lines().map(|line| {let out = format!("{i} {}\n", line); i += 1; out}).collect::<Vec<String>>().concat()), tool_data.cloned()))   
                 },
                 DatabaseReplyVariant::Error(DatabaseError::NoPersistentMemory) => {
-                    Ok((format!("No persistent memory yet"), None))
+                    Ok((format!("No persistent memory yet"), tool_data.cloned()))
                 },
                 _ => Err(ProximaToolCallError::Network(format!("Database couldn't be reached to retrieve persistent memory")))
             }
@@ -902,7 +902,7 @@ async fn memory_tool(mode:String, input:String, database_connection:DatabaseSend
                     let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::ToolRequest(ToolRequest::UpdatePersistentMemoryFor(access_mode_id, data)), None);
                     database_connection.send_prio(db_req);
                     match bad_async_recv(db_recv).await.variant {
-                        DatabaseReplyVariant::RequestExecuted => Ok((format!("Successfully added {total_added} lines with numbers : {}", to_add.lines().map(|line| {let out = format!("{i}, "); i += 1; out}).collect::<Vec<String>>().concat()), None)),
+                        DatabaseReplyVariant::RequestExecuted => Ok((format!("Successfully added {total_added} lines with numbers : {}", to_add.lines().map(|line| {let out = format!("{i}, "); i += 1; out}).collect::<Vec<String>>().concat()), tool_data.cloned())),
                         _ => Err(ProximaToolCallError::Network(format!("Database couldn't be reached to add to persistent memory"))),
                     }
                     
@@ -914,7 +914,7 @@ async fn memory_tool(mode:String, input:String, database_connection:DatabaseSend
                     database_connection.send_prio(db_req);
                     let mut i = 0;
                     match bad_async_recv(db_recv).await.variant {
-                        DatabaseReplyVariant::RequestExecuted => Ok((format!("Successfully added {total_added} lines with numbers : {}", to_add.lines().map(|line| {let out = format!("{i}, "); i += 1; out}).collect::<Vec<String>>().concat()), None)),
+                        DatabaseReplyVariant::RequestExecuted => Ok((format!("Successfully added {total_added} lines with numbers : {}", to_add.lines().map(|line| {let out = format!("{i}, "); i += 1; out}).collect::<Vec<String>>().concat()), tool_data.cloned())),
                         _ => Err(ProximaToolCallError::Network(format!("Database couldn't be reached to add to persistent memory"))),
                     }
                 },
@@ -948,13 +948,13 @@ async fn memory_tool(mode:String, input:String, database_connection:DatabaseSend
                     let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::ToolRequest(ToolRequest::UpdatePersistentMemoryFor(access_mode_id, new_data)), None);
                     database_connection.send_prio(db_req);
                     match bad_async_recv(db_recv).await.variant {
-                        DatabaseReplyVariant::RequestExecuted => Ok((format!("Lines successfully removed"), None)),
+                        DatabaseReplyVariant::RequestExecuted => Ok((format!("Lines successfully removed"), tool_data.cloned())),
                         _ => Err(ProximaToolCallError::Network(format!("Database couldn't be reached to add to persistent memory"))),
                     }
                     
                 },
                 DatabaseReplyVariant::Error(DatabaseError::NoPersistentMemory) => {
-                    Ok((format!("Lines successfully removed\n"), None))
+                    Ok((format!("Lines successfully removed\n"), tool_data.cloned()))
                 },
                 _ => Err(ProximaToolCallError::Network(format!("Database couldn't be reached to get current persistent memory to add to it")))
             }
@@ -1235,7 +1235,7 @@ impl ProximaToolData {
             Self::Agent(data) => ContextData::Text(format!("")),
             Self::Memory { mode } => match mode {
                 MemoryToolMode::Active => ContextData::Text(format!("")),
-                MemoryToolMode::Automatic => ContextData::Text(format!("<memory_data>\n</memory_data>")),
+                MemoryToolMode::Automatic => ContextData::Text(format!("")),
             }
         }
     }
