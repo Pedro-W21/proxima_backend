@@ -332,7 +332,7 @@ async fn update_auto_memory(context:&mut WholeContext, db_sender:DatabaseSender,
                 },
                 _ => format!("Database unaccessible for memory update")
             };
-            part.add_data(ContextData::Text(format!("<automatic_memory>\n{addition}\n<automatic_memory>\n")));
+            part.add_data(ContextData::Text(format!("<automatic_memory>\n{addition}\n</automatic_memory>\n")));
             break;
         }
     }
