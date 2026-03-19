@@ -81,7 +81,7 @@ impl ProxDatabase {
         Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder:PathBuf::from("a/a/a/a/a/a/a/a"), chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new(), notifications:Notifications::new(), jobs:Jobs::new() }
     }
     pub fn get_request(&self, id:DatabaseItemID) -> DatabaseReply {
-        match id {
+        match id.clone() {
             DatabaseItemID::Tag(tagid) => if let Some(tag) = self.tags.get_tags().get(&tagid) {
                 DatabaseReply {variant : DatabaseReplyVariant::ReturnedItem(DatabaseItem::Tag(tag.clone()))}
             }
@@ -192,7 +192,7 @@ impl ProxDatabase {
             DatabaseItem::File(file) => {let id = self.files.add_file_raw(file); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::File(id)) }, DatabaseItemID::File(id))},
             DatabaseItem::Folder(folder) => {let id = self.folders.add_folder_raw(folder); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Folder(id)) }, DatabaseItemID::Folder(id))},
             DatabaseItem::ChatConfig(config) => {let id = self.configs.add_config(config); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::ChatConfiguration(id)) }, DatabaseItemID::ChatConfiguration(id))},
-            DatabaseItem::Media(media, data) => {let id = self.media.add_media(data, media.tags, media.access_modes, media.file_name, self.database_folder.clone(), media.media_type); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Media(id)) }, DatabaseItemID::Media(id))},
+            DatabaseItem::Media(media, data) => {let id = self.media.add_media(data, media.tags, media.access_modes, media.file_name, self.database_folder.clone(), media.media_type); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Media(id.clone())) }, DatabaseItemID::Media(id))},
             DatabaseItem::Memory(memory, data) => {let id = self.memories.add_memory(data, memory.access_modes, memory.tags, self.database_folder.clone(), memory.kind.clone()); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Memory(id)) }, DatabaseItemID::Memory(id))},
             DatabaseItem::UserData(user_data) => {self.personal_info.user_data = user_data; (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::UserData) }, DatabaseItemID::UserData)},
             DatabaseItem::UserStats(user_stats) => {self.personal_info.user_stats = user_stats; (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::UserStats) }, DatabaseItemID::UserStats)},
@@ -247,7 +247,7 @@ impl DatabaseItem {
             Self::ChatConfig(config) => DatabaseItemID::ChatConfiguration(config.id),
             Self::UserData(user_data) => DatabaseItemID::UserData,
             Self::UserStats(user_stats) => DatabaseItemID::UserStats,
-            Self::Media(media, _) => DatabaseItemID::Media(media.hash),
+            Self::Media(media, _) => DatabaseItemID::Media(media.hash.clone()),
             Self::Memory(memory, _) => DatabaseItemID::Memory(memory.id),
             Self::Notification(notif) => DatabaseItemID::Notification(notif.id),
             Self::Job(job) => DatabaseItemID::Job(job.id)
@@ -307,7 +307,7 @@ impl DatabaseItem {
 }
 
 
-#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum DatabaseItemID {
     Device(DeviceID),
     Chat(ChatID),
@@ -639,15 +639,19 @@ impl DatabaseHandler {
                     data.last_len = data.pending_updates_send.len();
                 }
             },
-            _ => for (user, data) in self.auth_sessions.iter_mut() {
-                if data.last_len == data.pending_updates_send.len() && Utc::now().signed_duration_since(data.last_decrease) > TimeDelta::days(3) {
-                    remove_clients.push(user.clone());
+            _ => {
+                println!("[database] sending add client update of {:?}", id);
+                for (user, data) in self.auth_sessions.iter_mut() {
+                    println!("[database] queuing up notification for {}", user);
+                    if data.last_len == data.pending_updates_send.len() && Utc::now().signed_duration_since(data.last_decrease) > TimeDelta::days(3) {
+                        remove_clients.push(user.clone());
+                    }
+                    else {
+                        data.last_decrease = Utc::now();
+                    }
+                    data.pending_updates_send.send(ClientUpdate::ItemUpdate(id.clone(), s_item.clone())).unwrap();
+                    data.last_len = data.pending_updates_send.len();
                 }
-                else {
-                    data.last_decrease = Utc::now();
-                }
-                data.pending_updates_send.send(ClientUpdate::ItemUpdate(id.clone(), s_item.clone())).unwrap();
-                data.last_len = data.pending_updates_send.len();
             }
         }
         for client in remove_clients {
@@ -890,7 +894,7 @@ impl DatabaseHandler {
                     else {
                         data.last_decrease = Utc::now();
                     }
-                    data.pending_updates_send.send(ClientUpdate::ItemRemoval(id)).unwrap();
+                    data.pending_updates_send.send(ClientUpdate::ItemRemoval(id.clone())).unwrap();
                     data.last_len = data.pending_updates_send.len();
                 }
             },
@@ -901,14 +905,14 @@ impl DatabaseHandler {
                 else {
                     data.last_decrease = Utc::now();
                 }
-                data.pending_updates_send.send(ClientUpdate::ItemRemoval(id)).unwrap();
+                data.pending_updates_send.send(ClientUpdate::ItemRemoval(id.clone())).unwrap();
                 data.last_len = data.pending_updates_send.len();
             }
         }
         for client in remove_clients {
             self.auth_sessions.remove(&client);
         }
-        response_sender.send(self.database.remove_request(id))
+        response_sender.send(self.database.remove_request(id.clone()))
     }
 
     fn handle_request(&mut self, request:InternalDBReq) -> Result<(), SendError<DatabaseReply>> {

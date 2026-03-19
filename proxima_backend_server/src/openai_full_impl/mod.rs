@@ -84,7 +84,7 @@ impl BackendAPI for OpenAIFullBackend {
                 match data {
                     ContextData::Text(text) => final_content.push_str(text.as_str()),
                     ContextData::Media(hash) => {
-                        let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Get(DatabaseItemID::Media(*hash)), None);
+                        let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Get(DatabaseItemID::Media(hash.clone())), None);
 
                         println!("[Agent] Created database request");
                         db_sender.send_prio(db_req);

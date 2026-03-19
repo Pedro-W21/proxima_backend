@@ -127,8 +127,8 @@ pub fn save_to_disk(database:ProxDatabase, absolute_starting_folder:PathBuf) -> 
     let string = serde_json::to_string(&database.configs).unwrap();
     save_string_into_file(string, absolute_starting_folder.join(FOLDER_STRUCTURE.get("configurations").unwrap()))?;
 
-    //let string = serde_json::to_string(&database.media).unwrap();
-    //save_string_into_file(string, absolute_starting_folder.join(FOLDER_STRUCTURE.get("media").unwrap()))?;
+    let string = serde_json::to_string(&database.media).unwrap();
+    save_string_into_file(string, absolute_starting_folder.join(FOLDER_STRUCTURE.get("media").unwrap()))?;
 
     let string = serde_json::to_string(&database.memories).unwrap();
     save_string_into_file(string, absolute_starting_folder.join(FOLDER_STRUCTURE.get("memories").unwrap()))?;

@@ -1,4 +1,5 @@
 use std::{collections::{HashMap, HashSet}, fs::File, io::{Read, Write}, path::PathBuf};
+use base64::{Engine, prelude::BASE64_STANDARD};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_256};
@@ -41,15 +42,16 @@ impl MediaStorage {
             Err(e) => panic!("File should be creatable by now, error : {e}")
         }
         let time = Utc::now();
+        let hash = BASE64_STANDARD.encode(hash);
         let media = Media { 
-            hash,
+            hash:hash.clone(),
             media_type,
             file_name, 
             tags,
             access_modes,
             added_at: time 
         };
-        self.data.insert(hash, media);
+        self.data.insert(hash.clone(), media);
         hash
     }   
     pub fn get_media(&self, hash:&MediaHash) -> Option<&Media> {
@@ -74,7 +76,7 @@ impl MediaStorage {
         existed
     }
     pub fn insert_media_raw(&mut self, media:Media) {
-        self.data.insert(media.hash, media);
+        self.data.insert(media.hash.clone(), media);
     }
 }
 
@@ -96,4 +98,4 @@ pub enum MediaType {
     Text
 }
 
-pub type MediaHash = [u8 ; 32];
+pub type MediaHash = String;
