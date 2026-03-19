@@ -89,7 +89,7 @@ impl BackendAPI for OpenAIFullBackend {
                         println!("[Agent] Created database request");
                         db_sender.send_prio(db_req);
                         if let Ok(DatabaseReply {variant:DatabaseReplyVariant::ReturnedItem(DatabaseItem::Media(med, data))}) = db_recv.recv() {
-                            let url = format!("data:image/png;base64,{}", BASE64_STANDARD.encode(data));
+                            let url = format!("data:image/png;base64,{}", data.get_str());
                             urls.push(ImageUrl {r#type:ContentType::image_url, image_url:Some(ImageUrlType {url}), text:None});
                         }
                     }

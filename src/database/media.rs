@@ -99,3 +99,20 @@ pub enum MediaType {
 }
 
 pub type MediaHash = String;
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Base64EncodedString {
+    str:String,
+}
+
+impl Base64EncodedString {
+    pub fn new(data:Vec<u8>) -> Self {
+        Self {str:BASE64_STANDARD.encode(data)}
+    }
+    pub fn get_data(&self) -> Vec<u8> {
+        BASE64_STANDARD.decode(self.str.clone()).unwrap()
+    }
+    pub fn get_str(&self) -> &String {
+        &self.str
+    }
+}

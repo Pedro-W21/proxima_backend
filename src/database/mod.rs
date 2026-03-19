@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use tags::{Tag, TagID, Tags};
 use user::{PersonalInformation, UserData};
 
-use crate::{ai_interaction::create_prompt::AgentPrompt, database::{configuration::{ChatConfigID, ChatConfiguration, ChatConfigurations}, context::WholeContext, jobs::{Job, JobID, Jobs}, loading_saving::{load_from_disk, save_to_disk}, media::{Media, MediaHash, MediaStorage}, memories::{MemReqMax, Memories, Memory, MemoryID, MemoryRequest}, notifications::{Notification, NotificationID, Notifications}, user::UserStats}};
+use crate::{ai_interaction::create_prompt::AgentPrompt, database::{configuration::{ChatConfigID, ChatConfiguration, ChatConfigurations}, context::WholeContext, jobs::{Job, JobID, Jobs}, loading_saving::{load_from_disk, save_to_disk}, media::{Base64EncodedString, Media, MediaHash, MediaStorage}, memories::{MemReqMax, Memories, Memory, MemoryID, MemoryRequest}, notifications::{Notification, NotificationID, Notifications}, user::UserStats}};
 
 pub mod tags;
 pub mod folders;
@@ -126,7 +126,7 @@ impl ProxDatabase {
             },
             DatabaseItemID::UserData => DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::UserData(self.personal_info.user_data.clone()))},
             DatabaseItemID::Media(mediaid) => if let Some((media, data)) = self.media.get_media_with_data(&mediaid, self.database_folder.clone()) {
-                DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Media(media.clone(), data))}
+                DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Media(media.clone(), Base64EncodedString::new(data)))}
             }
             else {
                 DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(id)) }
@@ -174,7 +174,7 @@ impl ProxDatabase {
                 DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(DatabaseItemID::File(id))) }
             }},
             DatabaseItem::ChatConfig(config) if self.configs.update_config(config.clone()) => {DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
-            DatabaseItem::Media(media, data) if self.media.update_media(media.clone(), data.clone(), self.database_folder.clone()) => {DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
+            DatabaseItem::Media(media, data) if self.media.update_media(media.clone(), data.get_data(), self.database_folder.clone()) => {DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
             DatabaseItem::Memory(memory, data) if self.memories.update_memory(memory.id, data.clone(), self.database_folder.clone()) => {DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
             DatabaseItem::Notification(notif) if self.notifications.insert_notification_raw(notif.clone()) => {DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
             DatabaseItem::UserData(user_data) => {self.personal_info.user_data = user_data; DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
@@ -192,7 +192,7 @@ impl ProxDatabase {
             DatabaseItem::File(file) => {let id = self.files.add_file_raw(file); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::File(id)) }, DatabaseItemID::File(id))},
             DatabaseItem::Folder(folder) => {let id = self.folders.add_folder_raw(folder); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Folder(id)) }, DatabaseItemID::Folder(id))},
             DatabaseItem::ChatConfig(config) => {let id = self.configs.add_config(config); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::ChatConfiguration(id)) }, DatabaseItemID::ChatConfiguration(id))},
-            DatabaseItem::Media(media, data) => {let id = self.media.add_media(data, media.tags, media.access_modes, media.file_name, self.database_folder.clone(), media.media_type); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Media(id.clone())) }, DatabaseItemID::Media(id))},
+            DatabaseItem::Media(media, data) => {let id = self.media.add_media(data.get_data(), media.tags, media.access_modes, media.file_name, self.database_folder.clone(), media.media_type); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Media(id.clone())) }, DatabaseItemID::Media(id))},
             DatabaseItem::Memory(memory, data) => {let id = self.memories.add_memory(data, memory.access_modes, memory.tags, self.database_folder.clone(), memory.kind.clone()); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Memory(id)) }, DatabaseItemID::Memory(id))},
             DatabaseItem::UserData(user_data) => {self.personal_info.user_data = user_data; (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::UserData) }, DatabaseItemID::UserData)},
             DatabaseItem::UserStats(user_stats) => {self.personal_info.user_stats = user_stats; (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::UserStats) }, DatabaseItemID::UserStats)},
@@ -230,7 +230,7 @@ pub enum DatabaseItem {
     UserStats(UserStats),
     Job(Job),
     ChatConfig(ChatConfiguration),
-    Media(Media, Vec<u8>),
+    Media(Media, Base64EncodedString),
     Memory(Memory, String),
     Notification(Notification)
 }
@@ -440,6 +440,7 @@ pub enum ToolRequest {
     UpdatePersistentMemoryFor(AccessModeID, String),
     GetPersistentMemoryFor(AccessModeID),
     GetAutoMemoryFor(AccessModeID, usize),
+    GetMediaWithoutData(MediaHash),
 }
 
 pub enum InternalDBReq {
@@ -877,6 +878,14 @@ impl DatabaseHandler {
                 }
                 else {
                     response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(DatabaseItemID::AccessMode(access_mode_id)))})
+                }
+            },
+            ToolRequest::GetMediaWithoutData(media_hash) => {
+                if let Some(media) = self.database.media.get_media(&media_hash) {
+                    response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Media(media.clone(), Base64EncodedString::new(vec![])))})
+                }
+                else {
+                    response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(DatabaseItemID::Media(media_hash)))})
                 }
             }
         }

@@ -20,6 +20,7 @@ const PREMADE_FILES:LazyLock<HashMap<String, Vec<u8>>> = LazyLock::new(|| {
             ("tags".to_string(), serde_json::to_string(&Tags::new()).unwrap().as_bytes().to_vec()),
             ("media".to_string(), serde_json::to_string(&MediaStorage::new()).unwrap().as_bytes().to_vec()),
             ("memories".to_string(), serde_json::to_string(&Memories::new()).unwrap().as_bytes().to_vec()),
+            ("notifications".to_string(), serde_json::to_string(&Notifications::new()).unwrap().as_bytes().to_vec()),
             ("jobs".to_string(), serde_json::to_string(&Jobs::new()).unwrap().as_bytes().to_vec()),
             ("user_data".to_string(), serde_json::to_string(&PersonalInformation::new(String::new(), String::new())).unwrap().as_bytes().to_vec()),
         ]
