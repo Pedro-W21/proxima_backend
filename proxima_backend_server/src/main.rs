@@ -3,7 +3,7 @@
 use std::{path::PathBuf, sync::{mpmc::channel, Arc}};
 
 use actix_web::{web::Data, App, HttpServer};
-use proxima_backend::{ai_interaction::{launch_ai_endpoint_thread, tools::RuntimeToolData}, database::jobs::job_thread};
+use proxima_backend::{ai_interaction::{launch_ai_endpoint_thread, tools::RuntimeToolData}, database::jobs::job_thread, web_payloads::DBPayload};
 use proxima_backend::database::{launch_database_thread, launch_saving_thread};
 use proxima_backend::initialization::initialize;
 use proxima_backend::proxima_handler::ProximaHandler;
@@ -35,6 +35,7 @@ async fn main() {
     let server = HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(handler.clone())) // Share the handler
+            .app_data(web::JsonConfig::default().limit(1 << 26))
             .route("/home", web::get().to(home_get_handler))
             .route("/auth", web::post().to(auth_post_handler))
             .route("/db", web::post().to(db_post_handler))
