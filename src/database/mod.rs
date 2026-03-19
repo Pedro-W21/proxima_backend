@@ -592,7 +592,7 @@ impl DatabaseHandler {
         
         let mut remove_clients = Vec::with_capacity(self.auth_sessions.len());
         match auth_key {
-            Some(key) => for (user, data) in self.auth_sessions.iter_mut() {
+            Some(key) if !item.get_id().is_media() => for (user, data) in self.auth_sessions.iter_mut() {
                 if user != &key {
                     if data.last_len == data.pending_updates_send.len() && Utc::now().signed_duration_since(data.last_decrease) > TimeDelta::days(3) {
                         remove_clients.push(user.clone());
@@ -604,15 +604,21 @@ impl DatabaseHandler {
                     data.last_len = data.pending_updates_send.len();
                 }
             },
-            None => for (user, data) in self.auth_sessions.iter_mut() {
-                if data.last_len == data.pending_updates_send.len() && Utc::now().signed_duration_since(data.last_decrease) > TimeDelta::days(3) {
-                    remove_clients.push(user.clone());
+            _ => {
+                let mut item = item.clone();
+                if let DatabaseItem::Media(_, data) = &mut item {
+                    *data = Base64EncodedString::new(vec![]);
                 }
-                else {
-                    data.last_decrease = Utc::now();
+                for (user, data) in self.auth_sessions.iter_mut() {
+                    if data.last_len == data.pending_updates_send.len() && Utc::now().signed_duration_since(data.last_decrease) > TimeDelta::days(3) {
+                        remove_clients.push(user.clone());
+                    }
+                    else {
+                        data.last_decrease = Utc::now();
+                    }
+                    data.pending_updates_send.send(ClientUpdate::ItemUpdate(item.get_id(), item.clone())).unwrap();
+                    data.last_len = data.pending_updates_send.len();
                 }
-                data.pending_updates_send.send(ClientUpdate::ItemUpdate(item.get_id(), item.clone())).unwrap();
-                data.last_len = data.pending_updates_send.len();
             }
         }
         for client in remove_clients {
@@ -641,9 +647,10 @@ impl DatabaseHandler {
                 }
             },
             _ => {
-                println!("[database] sending add client update of {:?}", id);
+                if let DatabaseItem::Media(_, data) = &mut s_item {
+                    *data = Base64EncodedString::new(vec![]);
+                }
                 for (user, data) in self.auth_sessions.iter_mut() {
-                    println!("[database] queuing up notification for {}", user);
                     if data.last_len == data.pending_updates_send.len() && Utc::now().signed_duration_since(data.last_decrease) > TimeDelta::days(3) {
                         remove_clients.push(user.clone());
                     }
