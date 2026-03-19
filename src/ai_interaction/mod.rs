@@ -78,7 +78,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                         if let Some(tools) = settings.get_tools() && tools.has_automatic_memory() {
                             update_auto_memory(&mut whole_context, self.database_sender.clone(), access_mode).await;
                         }
-                        let id = self.backend.send_new_prompt(whole_context.clone(), session_type, Some(settings.clone()))?;
+                        let id = self.backend.send_new_prompt(whole_context.clone(), session_type, Some(settings.clone()), self.database_sender.clone())?;
                         println!("Sent prompt !!!");
                         let mut response = self.backend.get_response_to_latest_prompt_for(id).await;
                         
@@ -98,7 +98,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                                     if tools.has_automatic_memory() {
                                         update_auto_memory(&mut whole_context, self.database_sender.clone(), access_mode).await;
                                     }
-                                    let id = self.backend.send_new_prompt(whole_context.clone(), session_type, Some(settings.clone()))?;
+                                    let id = self.backend.send_new_prompt(whole_context.clone(), session_type, Some(settings.clone()), self.database_sender.clone())?;
                                     println!("Sent prompt !!!");
                                     response = self.backend.get_response_to_latest_prompt_for(id).await;
                                     i += 1;
@@ -124,7 +124,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                     },
                     None => {
                         println!("in no-setting response cycle");
-                        let id = self.backend.send_new_prompt(whole_context.clone(), session_type, None)?;
+                        let id = self.backend.send_new_prompt(whole_context.clone(), session_type, None, self.database_sender.clone())?;
                         println!("Sent prompt !!!");
                         let response = self.backend.get_response_to_latest_prompt_for(id).await;
                         println!("got response");
@@ -149,7 +149,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                         if let Some(tools) = settings.get_tools() && tools.has_automatic_memory() {
                             update_auto_memory(&mut whole_context, self.database_sender.clone(), access_mode).await;
                         }
-                        let (id, receiver) = self.backend.send_new_prompt_streaming(whole_context.clone(), session_type, Some(settings.clone()))?;
+                        let (id, receiver) = self.backend.send_new_prompt_streaming(whole_context.clone(), session_type, Some(settings.clone()), self.database_sender.clone())?;
                         println!("Sent prompt !!!");
                         send_streaming_response(receiver, ContextPosition::AI, self.response_sender.clone(), rep_sender.clone()).await;
                         let mut response = self.backend.get_response_to_latest_prompt_for(id).await;
@@ -187,7 +187,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                                     if tools.has_automatic_memory() {
                                         update_auto_memory(&mut whole_context, self.database_sender.clone(), access_mode).await;
                                     }
-                                    let (id, receiver) = self.backend.send_new_prompt_streaming(whole_context.clone(), session_type, Some(settings.clone()))?;
+                                    let (id, receiver) = self.backend.send_new_prompt_streaming(whole_context.clone(), session_type, Some(settings.clone()), self.database_sender.clone())?;
 
                                     send_streaming_response(receiver, ContextPosition::AI, self.response_sender.clone(), rep_sender.clone()).await;
                                     println!("Sent prompt !!!");
@@ -232,7 +232,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                     },
                     None => {
                         println!("in no-setting response cycle");
-                        let (id, receiver) = self.backend.send_new_prompt_streaming(whole_context.clone(), session_type, None)?;
+                        let (id, receiver) = self.backend.send_new_prompt_streaming(whole_context.clone(), session_type, None, self.database_sender.clone())?;
                         println!("Preparing streaming response");
                         send_streaming_response(receiver, ContextPosition::AI, self.response_sender.clone(), rep_sender.clone()).await;
                         println!("sending streaming response");

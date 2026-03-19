@@ -52,7 +52,7 @@ impl ContextPart {
         self.data.iter().map(|part| {
             match part {
                 ContextData::Text(text) => text.clone(),
-                ContextData::Media(img) => String::from("Alt text : This is an image. Not much more I can say since alt text is not implemented yet")
+                ContextData::Media(img) => String::from("IMAGE")
             }
         }).collect()
     }
@@ -68,6 +68,7 @@ impl ContextPart {
                 ContextData::Text(text) => current_string += &text,
                 ContextData::Media(image) => {
                     new_data.push(ContextData::Text(current_string));
+                    new_data.push(ContextData::Media(image));
                     current_string = String::new();
                 },
             }

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, future::Future, pin::Pin, sync::{mpmc::{channel, Receiver, Sender}, Arc, RwLock}};
 
 use openai::{chat::{ChatCompletion, ChatCompletionChoice, ChatCompletionGeneric, ChatCompletionMessage, ChatCompletionMessageRole}, ApiResponseOrError, Credentials, OpenAiError};
-use proxima_backend::database::{configuration::ChatConfiguration, context::{ContextData, ContextPart, ContextPosition, Prompt, Response, WholeContext}};
+use proxima_backend::database::{DatabaseSender, configuration::ChatConfiguration, context::{ContextData, ContextPart, ContextPosition, Prompt, Response, WholeContext}};
 use proxima_backend::database::chats::{SessionID, SessionType};
 
 
@@ -65,7 +65,7 @@ impl BackendAPI for OpenAIBackend {
         let (send, recv) = channel();
         Self { creds: connection_data.0, model:connection_data.1, sessions:HashMap::with_capacity(16), latest_session_id:0, tasks:Arc::new(RwLock::new(Vec::new())), task_sender:send, results_recv:recv, total_tasks:0}
     }
-    fn send_new_prompt_streaming(&mut self, new_prompt:WholeContext, session_type:SessionType, config:Option<ChatConfiguration>) -> Result<(SessionID, Receiver<ContextData>), BackendError>{
+    fn send_new_prompt_streaming(&mut self, new_prompt:WholeContext, session_type:SessionType, config:Option<ChatConfiguration>, db_sender:DatabaseSender) -> Result<(SessionID, Receiver<ContextData>), BackendError>{
         let new_session_id = self.latest_session_id;
         self.latest_session_id += 1;
         let session_id = SessionID { id: new_session_id, session_type };
@@ -233,7 +233,7 @@ impl BackendAPI for OpenAIBackend {
             None => panic!("This session should exist ! {:?}", session),
         }
     }
-    fn send_new_prompt(&mut self, new_prompt:WholeContext, session_type:SessionType, config:Option<ChatConfiguration>) -> Result<SessionID, BackendError> {
+    fn send_new_prompt(&mut self, new_prompt:WholeContext, session_type:SessionType, config:Option<ChatConfiguration>, db_sender:DatabaseSender) -> Result<SessionID, BackendError> {
         let new_session_id = self.latest_session_id;
         self.latest_session_id += 1;
         let session_id = SessionID { id: new_session_id, session_type };

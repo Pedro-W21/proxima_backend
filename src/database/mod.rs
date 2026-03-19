@@ -324,6 +324,15 @@ pub enum DatabaseItemID {
     Job(JobID)
 }
 
+impl DatabaseItemID {
+    pub fn is_media(&self) -> bool {
+        match self {
+            Self::Media(_) => true,
+            _ => false
+        }
+    }
+}
+
 impl Step for DatabaseItemID {
     fn steps_between(start: &Self, end: &Self) -> (usize, Option<usize>) {
         let start_id = match start {
@@ -618,7 +627,7 @@ impl DatabaseHandler {
         s_item.set_id(id.clone());
         let mut remove_clients = Vec::with_capacity(self.auth_sessions.len());
         match auth_key {
-            Some(key) => for (user, data) in self.auth_sessions.iter_mut() {
+            Some(key) if !id.is_media() => for (user, data) in self.auth_sessions.iter_mut() {
                 if user != &key {
                     if data.last_len == data.pending_updates_send.len() && Utc::now().signed_duration_since(data.last_decrease) > TimeDelta::days(3) {
                         remove_clients.push(user.clone());
@@ -630,7 +639,7 @@ impl DatabaseHandler {
                     data.last_len = data.pending_updates_send.len();
                 }
             },
-            None => for (user, data) in self.auth_sessions.iter_mut() {
+            _ => for (user, data) in self.auth_sessions.iter_mut() {
                 if data.last_len == data.pending_updates_send.len() && Utc::now().signed_duration_since(data.last_decrease) > TimeDelta::days(3) {
                     remove_clients.push(user.clone());
                 }

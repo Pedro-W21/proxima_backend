@@ -1,9 +1,10 @@
 use std::{collections::HashMap, future::Future, pin::Pin, sync::{Arc, RwLock, mpmc::{Receiver, Sender, channel}}, thread, time::Duration};
 
 use actix_web::rt::time::sleep;
+use base64::{Engine, engine::general_purpose::URL_SAFE, prelude::BASE64_STANDARD};
 use futures::StreamExt;
-use openai_api_rs::v1::{api::OpenAIClient, chat_completion::{ChatCompletionChoice, ChatCompletionMessage, Content, MessageRole, chat_completion::{ChatCompletionRequest, ChatCompletionResponse}, chat_completion_stream::{ChatCompletionStreamRequest, ChatCompletionStreamResponse}}, common::Usage, error::APIError};
-use proxima_backend::database::{configuration::ChatConfiguration, context::{ContextData, ContextPart, ContextPosition, Prompt, Response, WholeContext}};
+use openai_api_rs::v1::{api::OpenAIClient, chat_completion::{ChatCompletionChoice, ChatCompletionMessage, Content, ContentType, ImageUrl, ImageUrlType, MessageRole, chat_completion::{ChatCompletionRequest, ChatCompletionResponse}, chat_completion_stream::{ChatCompletionStreamRequest, ChatCompletionStreamResponse}}, common::Usage, error::APIError};
+use proxima_backend::database::{DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, configuration::ChatConfiguration, context::{ContextData, ContextPart, ContextPosition, Prompt, Response, WholeContext}};
 use proxima_backend::database::chats::{SessionID, SessionType};
 
 
@@ -70,7 +71,7 @@ impl BackendAPI for OpenAIFullBackend {
         let (send, recv) = channel();
         Self { api_key:connection_data.1, url:connection_data.0, model:connection_data.2, sessions:HashMap::with_capacity(16), latest_session_id:0, tasks:Arc::new(RwLock::new(Vec::new())), task_sender:send, results_recv:recv, total_tasks:0}
     }
-    fn send_new_prompt_streaming(&mut self, new_prompt:WholeContext, session_type:SessionType, config:Option<ChatConfiguration>) -> Result<(SessionID, Receiver<ContextData>), BackendError> {
+    fn send_new_prompt_streaming(&mut self, new_prompt:WholeContext, session_type:SessionType, config:Option<ChatConfiguration>, db_sender:DatabaseSender) -> Result<(SessionID, Receiver<ContextData>), BackendError> {
         let new_session_id = self.latest_session_id;
         self.latest_session_id += 1;
         let session_id = SessionID { id: new_session_id, session_type };
@@ -78,26 +79,42 @@ impl BackendAPI for OpenAIFullBackend {
         for part in new_prompt.get_parts() {
             // Only supports text for now
             let mut final_content = String::new();
+            let mut urls = Vec::with_capacity(8);
             for data in part.get_data() {
                 match data {
                     ContextData::Text(text) => final_content.push_str(text.as_str()),
+                    ContextData::Media(hash) => {
+                        let (db_req, db_recv) = DatabaseRequest::new(DatabaseRequestVariant::Get(DatabaseItemID::Media(*hash)), None);
+
+                        println!("[Agent] Created database request");
+                        db_sender.send_prio(db_req);
+                        if let Ok(DatabaseReply {variant:DatabaseReplyVariant::ReturnedItem(DatabaseItem::Media(med, data))}) = db_recv.recv() {
+                            let url = format!("data:image/png;base64,{}", BASE64_STANDARD.encode(data));
+                            urls.push(ImageUrl {r#type:ContentType::image_url, image_url:Some(ImageUrlType {url}), text:None});
+                        }
+                    }
                     _ => panic!("Not implemented")
                 }
             }
-            match part.get_position() {
+            let role = match part.get_position() {
                 ContextPosition::User => {
-                    messages.push(ChatCompletionMessage { role: MessageRole::user, content: Content::Text(final_content), name:None, tool_calls:None, tool_call_id:None });
+                    MessageRole::user
                 },
                 ContextPosition::System => {
-                    messages.push(ChatCompletionMessage { role: MessageRole::system, content: Content::Text(final_content), name:None, tool_calls:None, tool_call_id:None });
+                    MessageRole::system
                 },
                 ContextPosition::AI => {
-                    messages.push(ChatCompletionMessage { role: MessageRole::assistant, content: Content::Text(final_content), name:None, tool_calls:None, tool_call_id:None });
+                    MessageRole::assistant
                 },
                 ContextPosition::Total | ContextPosition::Tool(_) => {
-                    messages.push(ChatCompletionMessage { role: MessageRole::tool, content: Content::Text(final_content), name:None, tool_calls:None, tool_call_id:None });
+                    MessageRole::tool
                 }
+            };
+            messages.push(ChatCompletionMessage { role:role.clone() , content: Content::Text(final_content), name:None, tool_calls:None, tool_call_id:None });
+            if urls.len() > 0 {
+                messages.push(ChatCompletionMessage { role , content: Content::ImageUrl(urls), name:None, tool_calls:None, tool_call_id:None });
             }
+            
         }
         let messages_clones = messages.clone();
         let session_clones = session_id.clone();
@@ -263,7 +280,7 @@ impl BackendAPI for OpenAIFullBackend {
             None => panic!("This session should exist ! {:?}", session),
         }
     }
-    fn send_new_prompt(&mut self, new_prompt:WholeContext, session_type:SessionType, config:Option<ChatConfiguration>) -> Result<SessionID, BackendError> {
+    fn send_new_prompt(&mut self, new_prompt:WholeContext, session_type:SessionType, config:Option<ChatConfiguration>, db_sender:DatabaseSender) -> Result<SessionID, BackendError> {
         let new_session_id = self.latest_session_id;
         self.latest_session_id += 1;
         let session_id = SessionID { id: new_session_id, session_type };

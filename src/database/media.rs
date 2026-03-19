@@ -24,12 +24,12 @@ impl MediaStorage {
         let mut found_path = false;
         let mut test_path = proxima_data_path.clone();
         let mut file_name = original_file_name.clone();
-        let mut bytes_added = 0;
+        let mut bytes_added = 8;
         while !found_path {
             test_path.push(format!("media/{}", file_name.clone()));
             if test_path.exists() {
                 test_path = proxima_data_path.clone();
-                file_name = format!("{:#04x}", hash[bytes_added]) + &file_name;
+                file_name = format!("{:#04x}_", hash[bytes_added]) + &file_name;
                 bytes_added += 1;
             }
             else {
@@ -92,7 +92,8 @@ pub struct Media {
 pub enum MediaType {
     Image,
     Video,
-    Audio
+    Audio,
+    Text
 }
 
 pub type MediaHash = [u8 ; 32];
