@@ -4,7 +4,8 @@ use actix_web::rt::time::sleep;
 use base64::{Engine, engine::general_purpose::URL_SAFE, prelude::BASE64_STANDARD};
 use futures::StreamExt;
 use openai_api_rs::v1::{api::OpenAIClient, chat_completion::{ChatCompletionChoice, ChatCompletionMessage, Content, ContentType, ImageUrl, ImageUrlType, MessageRole, chat_completion::{ChatCompletionRequest, ChatCompletionResponse}, chat_completion_stream::{ChatCompletionStreamRequest, ChatCompletionStreamResponse}}, common::Usage, error::APIError};
-use proxima_backend::database::{DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, configuration::ChatConfiguration, context::{ContextData, ContextPart, ContextPosition, Prompt, Response, WholeContext}};
+use pdfium_render::prelude::{PdfBitmap, PdfBitmapFormat, Pdfium};
+use proxima_backend::database::{DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, configuration::ChatConfiguration, context::{ContextData, ContextPart, ContextPosition, Prompt, Response, WholeContext}, media::{Base64EncodedString, MediaType}};
 use proxima_backend::database::chats::{SessionID, SessionType};
 
 
@@ -89,8 +90,30 @@ impl BackendAPI for OpenAIFullBackend {
                         println!("[Agent] Created database request");
                         db_sender.send_prio(db_req);
                         if let Ok(DatabaseReply {variant:DatabaseReplyVariant::ReturnedItem(DatabaseItem::Media(med, data))}) = db_recv.recv() {
-                            let url = format!("data:image/png;base64,{}", data.get_str());
-                            urls.push(ImageUrl {r#type:ContentType::image_url, image_url:Some(ImageUrlType {url}), text:None});
+                            match med.media_type {
+                                MediaType::Text => final_content.push_str(&format!("<text_media name={}>\n{}\n</text_media>", med.file_name.clone(), String::from_utf8(data.get_data()).unwrap())),
+                                MediaType::Image => {
+                                    let url = format!("data:image/png;base64,{}", data.get_str());
+                                    urls.push(ImageUrl {r#type:ContentType::image_url, image_url:Some(ImageUrlType {url}), text:None});
+                                },
+                                MediaType::PDF => {
+                                    let pdfium = Pdfium::default();
+                                    let pdf = pdfium.load_pdf_from_byte_vec(data.get_data(), None).unwrap();
+                                    for page in pdf.pages().iter() {
+                                        let mut url = format!("data:image/png;base64,");
+                                        let ratio = page.width().abs().value/page.height().abs().value;
+                                        let width = (1000.0 * ratio) as i32;
+                                        let height = 1000;
+                                        let mut data = std::io::Cursor::new(Vec::with_capacity((width * height * 4) as usize));
+                                        let mut bitmap = PdfBitmap::empty(width, height, PdfBitmapFormat::BGRA, pdf.bindings()).unwrap();
+                                        page.render_into_bitmap(&mut bitmap, width, height, None).unwrap();
+                                        bitmap.as_image().write_to(&mut data, image::ImageFormat::Png).unwrap();
+                                        url.push_str(Base64EncodedString::new(data.into_inner()).get_str());
+                                        urls.push(ImageUrl { r#type: ContentType::image_url, text: None, image_url: Some(ImageUrlType { url }) });
+                                    }
+                                }
+                                _ => final_content.push_str("UNSUPPORTED MEDIA TYPE"),
+                            }
                         }
                     }
                     _ => panic!("Not implemented")
