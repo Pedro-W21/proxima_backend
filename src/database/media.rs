@@ -95,7 +95,8 @@ pub enum MediaType {
     Image,
     Video,
     Audio,
-    Text
+    Text,
+    PDF
 }
 
 pub type MediaHash = String;
