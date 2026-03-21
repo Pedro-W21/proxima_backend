@@ -52,7 +52,7 @@ impl ContextPart {
         self.data.iter().map(|part| {
             match part {
                 ContextData::Text(text) => text.clone(),
-                ContextData::Media(img) => String::from("IMAGE")
+                ContextData::Media(img) => String::new()
             }
         }).collect()
     }
