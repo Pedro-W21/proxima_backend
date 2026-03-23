@@ -90,7 +90,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                                     let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone(), self.database_sender.clone(), self.self_sender.clone(), &self.runtime_tool_data, access_mode).await;
                                     whole_context.add_part(response.clone());
                                     whole_context.add_part(added_context);
-                                    for part in new_tools.get_tool_data_insert() {
+                                    for part in new_tools.get_tool_data_insert(ContextPosition::AI) {
                                         whole_context.add_part(part);
                                     }
                                     new_tools = output_tools;
@@ -178,7 +178,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                                     whole_context.add_part(response.clone());
                                     send_context_part_streaming_blocking(added_context.clone(), self.response_sender.clone());
                                     whole_context.add_part(added_context);
-                                    for part in new_tools.get_tool_data_insert() {
+                                    for part in new_tools.get_tool_data_insert(ContextPosition::AI) {
                                         send_context_part_streaming_blocking(part.clone(), self.response_sender.clone());
                                         whole_context.add_part(part);
                                     }

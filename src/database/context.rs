@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{ai_interaction::tools::ProximaTool, database::{configuration::{ChatConfiguration, ChatSetting, RepeatPosition}, media::MediaHash}};
@@ -7,12 +8,13 @@ pub type Response = ContextPart;
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct ContextPart {
     data:Vec<ContextData>,
-    position:ContextPosition
+    position:ContextPosition,
+    creation_date:Option<DateTime<Utc>>
 }
 
 impl ContextPart {
     pub fn new(data:Vec<ContextData>, position:ContextPosition) -> ContextPart {
-        ContextPart { data, position }
+        ContextPart { data, position, creation_date:Some(Utc::now()) }
     }
     pub fn get_data(&self) -> &Vec<ContextData> {
         &self.data
@@ -31,10 +33,13 @@ impl ContextPart {
     pub fn new_user_prompt_with_tools(mut data:Vec<ContextData>) -> ContextPart {
         data.insert(0, ContextData::Text("<user_prompt>\n".to_string()));
         data.push(ContextData::Text("</user_prompt>\n".to_string()));
-        Self { data: data, position: ContextPosition::User }
+        Self { data: data, position: ContextPosition::User, creation_date:Some(Utc::now()) }
     }
     pub fn get_position(&self) -> &ContextPosition {
         &self.position
+    }
+    pub fn get_date(&self) -> Option<&DateTime<Utc>> {
+        self.creation_date.as_ref()
     }
     pub fn in_visible_position(&self) -> bool {
         match self.position {
@@ -150,6 +155,10 @@ impl WholeContext {
         WholeContext { parts: system }
     }
     pub fn add_per_turn_settings(&mut self, settings:&ChatConfiguration) {
+        let previous = match self.get_parts().last() {
+            Some(part) => part.get_position().clone(),
+            None => ContextPosition::System
+        };
         for setting in settings.get_raw_settings() {
             match setting {
                 ChatSetting::RepeatedPrePrompt(prompt, position) => match position {
@@ -166,7 +175,7 @@ impl WholeContext {
         }
         match settings.get_tools() {
             Some(tools) => {
-                let mut other = tools.get_tool_data_insert();
+                let mut other = tools.get_tool_data_insert(previous);
                 self.parts.append(&mut other);
             },
             None => ()
@@ -182,7 +191,7 @@ impl WholeContext {
         for part in &self.parts {
             data.extend(part.data.iter().cloned());
         }
-        ContextPart { data, position:ContextPosition::Total }
+        ContextPart { data, position:ContextPosition::Total, creation_date:Some(Utc::now()) }
     }
     pub fn add_part(&mut self, part:ContextPart) {
         self.parts.push(part);

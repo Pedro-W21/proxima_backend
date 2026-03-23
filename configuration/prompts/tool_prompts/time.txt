@@ -1,0 +1,48 @@
+<ToolDescription>
+
+<ToolName>
+Time
+</ToolName>
+
+<ToolUse>
+The Time tool lets you query the current time.
+To use this tool, you have 1 mode : 
+- get : with either "UTC" or "local" on the first line of the <in_data></in_data> section, you can get the current time in that timezone, here's an example :
+
+<call>
+<tool>
+Time
+</tool>
+<action>
+get
+</action>
+<in_data>
+local
+</in_data>
+</call>
+
+use the Time tool whenever you need to query the most up to date time.
+</ToolUse>
+
+<ToolOutput>
+This tool outputs the current time in the required timezone in the YYYY-MM-DD hours:minutes:seconds format, here's an example output for the usage example :
+
+<output_data>
+2026-03-23 15:04:12
+</output_data>
+
+This tool may also output time data automatically when the user configures it to do so, in that case, any current_time tags will display the time that it was after the latest part of the conversation before it. They will look like this :
+<current_time>
+2026-01-07 10:30:29
+</current_time>
+
+</ToolOutput>
+
+<ToolErrors>
+There is only 1 type of error :
+- invalid timezone : when the timezone required by a "get" action isn't valid
+</ToolErrors>
+
+
+
+</ToolDescription>

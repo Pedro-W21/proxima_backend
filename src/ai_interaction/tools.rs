@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, collections::{HashMap, HashSet}, io::{Read, Write}, net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream}, num::{NonZeroU32, NonZeroUsize}, str::FromStr, sync::{mpmc::Receiver, mpsc::RecvTimeoutError}, time::Duration};
 
-use chrono::{Date, DateTime, Days, Months, NaiveDate, NaiveTime, TimeDelta, Timelike, Utc};
+use chrono::{Date, DateTime, Days, Local, Months, NaiveDate, NaiveTime, TimeDelta, Timelike, Utc};
 use html_parser::{Dom, Element, Node};
 use rand::{Rng, rng};
 use serde::{Deserialize, Serialize};
@@ -53,10 +53,10 @@ impl Tools {
             None
         }
     }
-    pub fn get_tool_data_insert(&self) -> Vec<ContextPart> {
+    pub fn get_tool_data_insert(&self, previous_context_pos:ContextPosition) -> Vec<ContextPart> {
         let mut parts = Vec::with_capacity(self.tool_data.len());
         for (key, data) in &self.tool_data {
-            parts.push(ContextPart::new(vec![data.get_data_to_insert()], ContextPosition::Tool(ToolPart::new(ToolPartKind::DataInsert, Some(key.clone())))) );
+            parts.push(ContextPart::new(vec![data.get_data_to_insert(previous_context_pos.clone())], ContextPosition::Tool(ToolPart::new(ToolPartKind::DataInsert, Some(key.clone())))) );
         }
         parts
     }
@@ -152,12 +152,12 @@ impl ProximaToolCallError {
         ContextPart::new(vec![self.generate_error_output_just_context_data(tool, action)], ContextPosition::Tool(ToolPart::new(ToolPartKind::Error, None)))  
     }
     pub fn generate_error_output_just_context_data(&self, tool:String, action:String) -> ContextData{
-        ContextData::Text(format!("<error><tool>{tool}</tool><action>{action}</action><error_data>{:?}</error_data></error>", self))
+        ContextData::Text(format!("<error>\n<tool>\n{tool}\n</tool>\n<action>\n{action}\n</action>\n<error_data>{:?}\n</error_data>\n</error>", self))
     }
 }
 
 pub fn generate_call_output(tool:String, action:String, output_data:String) -> ContextData {
-    ContextData::Text(format!("<output><tool>{tool}</tool><action>{action}</action><output_data>{output_data}</output_data></output>"))
+    ContextData::Text(format!("<output>\n<tool>\n{tool}\n</tool>\n<action>\n{action}\n</action>\n<output_data>\n{output_data}\n</output_data>\n</output>"))
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Serialize, Deserialize, Debug)]
@@ -170,6 +170,7 @@ pub enum ProximaTool {
     Rng,
     Memory,
     Jobs,
+    Time
 }
 
 impl ProximaTool {
@@ -183,6 +184,7 @@ impl ProximaTool {
             Self::Rng => false,
             Self::Memory => false,
             Self::Jobs => false,
+            Self::Time => true,
         }
     }
     pub fn is_valid_action(&self, action:&String) -> bool {
@@ -218,6 +220,10 @@ impl ProximaTool {
             Self::Jobs => match action.trim() {
                 "list" | "remove" | "create" | "modify" => true,
                 _ => false
+            },
+            Self::Time => match action.trim() {
+                "get" => true,
+                _ => false,
             }
         }
     }
@@ -231,6 +237,7 @@ impl ProximaTool {
             Self::Rng => "Random number generation".to_string(),
             Self::Memory => "Long term, cross-session dated memory storage and retrieval".to_string(),
             Self::Jobs => "Creation of tasks to be executed in the future like reminders or agent heartbeats".to_string(),
+            Self::Time => "Getting the current time in different timezones".to_string(),
         }
     }
     pub fn try_from_string(string:String) -> Option<Self> {
@@ -243,6 +250,7 @@ impl ProximaTool {
             "RNG" => Some(Self::Rng),
             "Memory" => Some(Self::Memory),
             "Jobs" => Some(Self::Jobs),
+            "Time" => Some(Self::Time),
             _ => None
         }
     }
@@ -415,6 +423,10 @@ impl ProximaTool {
                 let input_lines:Vec<String> = input.trim().lines().map(|line| {line.trim().to_string()}).collect();
                 let (output_str, new_data) = jobs_tool(action.to_string(), input_lines, database_connection, access_mode_id).await?;
                 Ok((generate_call_output("Jobs".to_string(), action.to_string(), output_str), new_data))
+            },
+            Self::Time => {
+                let (output_str, new_data) = time_tool(action.to_string(), data, input)?;
+                Ok((generate_call_output("Jobs".to_string(), action.to_string(), output_str), new_data))
             }
         }
     }
@@ -434,8 +446,11 @@ impl ProximaTool {
                 )
             ),
             Self::Rng => None,
-            Self::Memory => None,
+            Self::Memory => Some(ProximaToolData::Memory { mode: MemoryToolMode::Active }),
             Self::Jobs => None,
+            Self::Time => Some(
+                ProximaToolData::Time { mode: TimeToolMode::Active }
+            )
         }
     }
     pub fn get_description_string(&self, data:Option<&ProximaToolData>) -> String {
@@ -454,6 +469,7 @@ impl ProximaTool {
             Self::Rng => String::from(include_str!("../../configuration/prompts/tool_prompts/rng.txt")),
             Self::Memory => String::from(include_str!("../../configuration/prompts/tool_prompts/memory.txt")),
             Self::Jobs => String::from(include_str!("../../configuration/prompts/tool_prompts/jobs.txt")),
+            Self::Time => String::from(include_str!("../../configuration/prompts/tool_prompts/time.txt")),
         }
     }
     pub fn get_name(&self) -> String {
@@ -465,7 +481,8 @@ impl ProximaTool {
             Self::Agent => format!("Agent"),
             Self::Rng => format!("RNG"),
             Self::Memory => format!("Memory"),
-            Self::Jobs => format!("Jobs")
+            Self::Jobs => format!("Jobs"),
+            Self::Time => format!("Time")
         }
     }
 }
@@ -625,6 +642,14 @@ fn read_proxima_python_toolcall_string(stream:&mut TcpStream) -> Result<String, 
         }
     }
     
+}
+
+pub fn time_tool(mode:String, data:Option<&ProximaToolData>, input:String) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
+    match input.trim().to_lowercase().trim() {
+        "utc" => Ok((format!("{}", Utc::now()),data.cloned())),
+        "local" => Ok((format!("{}", Local::now()),data.cloned())),
+        _ => Err(ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: input, issue: format!("Queried timezone must be UTC or local ") }))
+    }
 }
 
 pub async fn agent_tool(mode:String, input:String, agents_data:&AgentToolData, database_connection:DatabaseSender, ai_sender:AiEndpointSender, access_mode_id:AccessModeID) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
@@ -1220,6 +1245,13 @@ pub enum ProximaToolData {
     LocalMemory(HashMap<String, String>),
     Agent(AgentToolData),
     Memory {mode:MemoryToolMode},
+    Time {mode:TimeToolMode}
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub enum TimeToolMode {
+    Active,
+    Automatic {after_user:bool, after_ai:bool, after_tools:bool}
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Copy)]
@@ -1229,13 +1261,19 @@ pub enum MemoryToolMode {
 }
 
 impl ProximaToolData {
-    pub fn get_data_to_insert(&self) -> ContextData {
+    pub fn get_data_to_insert(&self, previous_context_pos:ContextPosition ) -> ContextData {
         match self {
             Self::LocalMemory(key_value) => ContextData::Text(format!("<LocalMemory> local memory data : {:?}</LocalMemory>", key_value.clone())),
             Self::Agent(data) => ContextData::Text(format!("")),
-            Self::Memory { mode } => match mode {
-                MemoryToolMode::Active => ContextData::Text(format!("")),
-                MemoryToolMode::Automatic => ContextData::Text(format!("")),
+            Self::Memory { mode } => ContextData::Text(format!("")),
+            Self::Time { mode } => match mode {
+                TimeToolMode::Active => ContextData::Text(format!("")),
+                TimeToolMode::Automatic { after_user, after_ai, after_tools } => match previous_context_pos {
+                    ContextPosition::User if *after_user => ContextData::Text(format!("<current_time>\n{}\n</current_time>", Utc::now())),
+                    ContextPosition::AI if *after_ai => ContextData::Text(format!("<current_time>\n{}\n</current_time>", Utc::now())),
+                    ContextPosition::Tool(_) if *after_tools => ContextData::Text(format!("<current_time>\n{}\n</current_time>", Utc::now())),
+                    _ => ContextData::Text(format!("")),
+                }
             }
         }
     }
