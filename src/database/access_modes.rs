@@ -47,7 +47,7 @@ impl AccessModes {
         Self { 
             all_modes: HashMap::from([
                 (0, AccessMode {added_on:Utc::now(),id:0, tags:HashSet::new(), name:String::from("global"), persistent_memory:None}),
-                (0, AccessMode {added_on:Utc::now(),id:1, tags:HashSet::new(), name:String::from("callbacks"), persistent_memory:None}),
+                (1, AccessMode {added_on:Utc::now(),id:1, tags:HashSet::new(), name:String::from("callbacks"), persistent_memory:None}),
             ]),
             latest_id:2
         }
