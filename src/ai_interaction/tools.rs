@@ -5,7 +5,7 @@ use html_parser::{Dom, Element, Node};
 use rand::{Rng, rng};
 use serde::{Deserialize, Serialize};
 
-use crate::{ai_interaction::{AiEndpointSender, endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}}, database::{DatabaseError, DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, ToolRequest, access_modes::AccessModeID, chats::{Chat, SessionType}, configuration::{ChatConfiguration, ChatSetting}, context::{ContextData, ContextPart, ContextPosition, ToolPart, ToolPartKind, WholeContext}, jobs::{Job, JobID, JobRepeat, JobTiming, JobType}, memories::{MemReqMax, Memory, MemoryKind, MemoryRequest}}};
+use crate::{ai_interaction::{AiEndpointSender, endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}}, database::{DatabaseError, DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, ToolRequest, access_modes::AccessModeID, chats::{Chat, SessionType}, configuration::{ChatConfigID, ChatConfiguration, ChatSetting}, context::{ContextData, ContextPart, ContextPosition, ToolPart, ToolPartKind, WholeContext}, jobs::{Job, JobID, JobRepeat, JobTiming, JobType}, memories::{MemReqMax, Memory, MemoryKind, MemoryRequest}}};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Tools {
@@ -77,7 +77,10 @@ impl Tools {
         base += &String::from("\n</ToolUse>");
         ContextPart::new(vec![ContextData::Text(base)], ContextPosition::System)
     }
-    pub async fn call(&self, call_element:Element, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData, access_mode_id:AccessModeID) -> Result<(ContextData, Self), ContextPart> {
+    pub fn get_used_tools(&self) -> &Vec<ProximaTool> {
+        &self.used_tools
+    }
+    pub async fn call(&self, call_element:Element, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData, access_mode_id:AccessModeID, config_id:ChatConfigID) -> Result<(ContextData, Self), ContextPart> {
         dbg!(call_element.clone());
         if call_element.children.len() == 3 {
             let mut tool_name = String::new();
@@ -118,7 +121,7 @@ impl Tools {
                         },
                         _ => return Err(ProximaToolCallError::Parsing(ToolParsingError::NotAnElement).generate_error_output(tool_name, action))
                     }
-                    return tool.respond_to(action.clone(), inputs, self.tool_data.get(&tool), database_connection, ai_sender, runtime_tool_data, access_mode_id).await.map(|(context, new_data)| {(context, 
+                    return tool.respond_to(action.clone(), inputs, self.tool_data.get(&tool), database_connection, ai_sender, runtime_tool_data, access_mode_id, config_id).await.map(|(context, new_data)| {(context, 
                     match new_data {
                         Some(new_data) => {
                             let mut new_self = self.clone();
@@ -254,7 +257,7 @@ impl ProximaTool {
             _ => None
         }
     }
-    pub async fn respond_to(&self, action:String, input:String, data:Option<&ProximaToolData>, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData, access_mode_id:AccessModeID) -> Result<(ContextData, Option<ProximaToolData>), ProximaToolCallError> {
+    pub async fn respond_to(&self, action:String, input:String, data:Option<&ProximaToolData>, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData, access_mode_id:AccessModeID, config_id:ChatConfigID) -> Result<(ContextData, Option<ProximaToolData>), ProximaToolCallError> {
         match self {
             Self::LocalMemory => {
                 let mut new_data = data.unwrap().get_local_mem_data();
@@ -421,7 +424,7 @@ impl ProximaTool {
             },
             Self::Jobs => {
                 let input_lines:Vec<String> = input.trim().lines().map(|line| {line.trim().to_string()}).collect();
-                let (output_str, new_data) = jobs_tool(action.to_string(), input_lines, database_connection, access_mode_id).await?;
+                let (output_str, new_data) = jobs_tool(action.to_string(), input_lines, database_connection, access_mode_id, config_id).await?;
                 Ok((generate_call_output("Jobs".to_string(), action.to_string(), output_str), new_data))
             },
             Self::Time => {
@@ -1087,7 +1090,7 @@ pub fn python_tool(mode:String, data:String, addr:SocketAddr) -> Result<String, 
     }
 }
 
-async fn jobs_tool(mode:String, input_lines:Vec<String>, database_connection:DatabaseSender, access_mode_id:AccessModeID) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
+async fn jobs_tool(mode:String, input_lines:Vec<String>, database_connection:DatabaseSender, access_mode_id:AccessModeID, config_id:ChatConfigID) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
     let mut output = String::new();
     match mode.trim() {
         "list" => {
@@ -1156,7 +1159,7 @@ async fn jobs_tool(mode:String, input_lines:Vec<String>, database_connection:Dat
             }
         },
         "create" => {
-            create_job_mode(input_lines, database_connection, access_mode_id).await
+            create_job_mode(input_lines, database_connection, access_mode_id, config_id).await
         }
         _ => panic!("Impossible at this stage")
     }
@@ -1184,7 +1187,7 @@ fn parse_delay(split_line:Vec<&str>) -> Result<TimeDelta, ProximaToolCallError> 
     }
 }
 
-async fn create_job_mode(input_lines:Vec<String>, database_connection:DatabaseSender, access_mode_id:AccessModeID) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
+async fn create_job_mode(input_lines:Vec<String>, database_connection:DatabaseSender, access_mode_id:AccessModeID, config_id:ChatConfigID) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
     if input_lines.len() >= 4 {
         let timing = match input_lines[0].trim().split_whitespace().next().unwrap() {
             "ASAP" => JobTiming::ASAP,
@@ -1220,9 +1223,10 @@ async fn create_job_mode(input_lines:Vec<String>, database_connection:DatabaseSe
             _ => return Err(ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: input_lines[0].clone(), issue: format!("second line of job creation must start with one of no, regular or everyday") }))
         };
         let description = Some(input_lines[2].to_string());
-        let job_type = match input_lines[3].trim() {
+        let job_type = match input_lines[3].trim().to_lowercase().trim() {
             "reminder" => JobType::Reminder,
             "checklist" => JobType::Check(input_lines[4..].iter().map(|line| {line.clone()}).collect()),
+            "callback" => JobType::Callback(config_id),
             _ => return Err(ProximaToolCallError::Parsing(ToolParsingError::IncorrectExpression { expression: input_lines[0].clone(), issue: format!("fourth line of job creation must start with one of reminder or checklist") }))
         };
         let job = Job::new(timing, repeat, job_type, description, HashSet::from([0, access_mode_id]));
@@ -1320,13 +1324,13 @@ pub enum AgentStatus {
 }
 
 
-pub async fn handle_tool_calling_response(response:ContextPart, tools:Tools, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData, access_mode_id:AccessModeID) -> (ContextPart, Tools) {
+pub async fn handle_tool_calling_response(response:ContextPart, tools:Tools, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData, access_mode_id:AccessModeID, config_id:ChatConfigID) -> (ContextPart, Tools) {
     let mut out_context = ContextPart::new(vec![ContextData::Text(format!("<outputs>\n"))], ContextPosition::Tool(ToolPart::new(ToolPartKind::Output, None)));
     let mut out_tools = tools.clone();
     for data in response.get_data() {
         match data {
             ContextData::Text(text) => {
-                let (part, part_tools) = handle_tool_calling_context_data(text, out_tools.clone(), database_connection.clone(), ai_sender.clone(), runtime_tool_data,access_mode_id).await;
+                let (part, part_tools) = handle_tool_calling_context_data(text, out_tools.clone(), database_connection.clone(), ai_sender.clone(), runtime_tool_data,access_mode_id, config_id).await;
                 out_tools = part_tools;
                 out_context.merge_data_with(part);
             },
@@ -1381,7 +1385,7 @@ pub fn looks_like_nonstandard_final_response(response:&ContextPart) -> bool {
     !(found_start && found_end) && !found_call
 }
 
-async fn handle_tool_calling_context_data(text:&String, mut tools:Tools, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData, access_mode_id:AccessModeID) -> (ContextPart, Tools) {
+async fn handle_tool_calling_context_data(text:&String, mut tools:Tools, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData, access_mode_id:AccessModeID, config_id:ChatConfigID) -> (ContextPart, Tools) {
     match Dom::parse(text) {
         Ok(parsed) => {
             let mut data = Vec::with_capacity(2);
@@ -1390,7 +1394,7 @@ async fn handle_tool_calling_context_data(text:&String, mut tools:Tools, databas
                     Node::Element(elt) => {
                         match elt.name.trim() {
                             "call" => {
-                                match tools.call(elt, database_connection.clone(), ai_sender.clone(), runtime_tool_data, access_mode_id).await {
+                                match tools.call(elt, database_connection.clone(), ai_sender.clone(), runtime_tool_data, access_mode_id, config_id).await {
                                     Ok((context_data, out_tools)) => {
                                         data.push(context_data);
                                         tools = out_tools;

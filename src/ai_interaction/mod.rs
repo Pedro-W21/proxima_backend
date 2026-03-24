@@ -86,8 +86,8 @@ impl<B:BackendAPI> RequestHandler<B> {
                             Some(tools) => {
                                 let mut new_tools = tools.clone();
                                 let mut i = 0;
-                                while !is_valid_tool_calling_response(&response) && !looks_like_nonstandard_final_response(&response) && i < 8 {
-                                    let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone(), self.database_sender.clone(), self.self_sender.clone(), &self.runtime_tool_data, access_mode).await;
+                                while !is_valid_tool_calling_response(&response) && !looks_like_nonstandard_final_response(&response) && i < 12 {
+                                    let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone(), self.database_sender.clone(), self.self_sender.clone(), &self.runtime_tool_data, access_mode, settings.id).await;
                                     whole_context.add_part(response.clone());
                                     whole_context.add_part(added_context);
                                     for part in new_tools.get_tool_data_insert(ContextPosition::AI) {
@@ -173,8 +173,8 @@ impl<B:BackendAPI> RequestHandler<B> {
                                 println!("Got tools, is tool calling response : {}, looks like nonstandard : {}", is_valid_tool_calling_response(&response), looks_like_nonstandard_final_response(&response));
                                 let mut new_tools = tools.clone();
                                 let mut i = 0;
-                                while !is_valid_tool_calling_response(&response) && !looks_like_nonstandard_final_response(&response) && i < 8 {
-                                    let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone(), self.database_sender.clone(), self.self_sender.clone(), &self.runtime_tool_data, access_mode).await;
+                                while !is_valid_tool_calling_response(&response) && !looks_like_nonstandard_final_response(&response) && i < 12 {
+                                    let (added_context, output_tools) = handle_tool_calling_response(response.clone(), new_tools.clone(), self.database_sender.clone(), self.self_sender.clone(), &self.runtime_tool_data, access_mode, settings.id).await;
                                     whole_context.add_part(response.clone());
                                     send_context_part_streaming_blocking(added_context.clone(), self.response_sender.clone());
                                     whole_context.add_part(added_context);

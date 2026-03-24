@@ -44,7 +44,13 @@ pub struct AccessModes {
 
 impl AccessModes {
     pub fn new() -> Self {
-        Self { all_modes: HashMap::from([(0, AccessMode {added_on:Utc::now(),id:0, tags:HashSet::new(), name:String::from("global"), persistent_memory:None})]), latest_id:1, }
+        Self { 
+            all_modes: HashMap::from([
+                (0, AccessMode {added_on:Utc::now(),id:0, tags:HashSet::new(), name:String::from("global"), persistent_memory:None}),
+                (0, AccessMode {added_on:Utc::now(),id:1, tags:HashSet::new(), name:String::from("callbacks"), persistent_memory:None}),
+            ]),
+            latest_id:2
+        }
     }
     pub fn get_modes(&self) -> &HashMap<AccessModeID, AccessMode> {
         &self.all_modes

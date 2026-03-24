@@ -4,7 +4,7 @@ use chrono::{Date, DateTime, Days, NaiveTime, TimeDelta, Utc};
 use html_parser::{Dom, Node};
 use serde::{Deserialize, Serialize};
 
-use crate::{ai_interaction::{AiEndpointSender, endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponse, EndpointResponseVariant}}, database::{DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseSender, ToolRequest, access_modes::AccessModeID, chats::{ChatID, SessionType}, configuration::ChatConfigID, context::{ContextData, ContextPart, ContextPosition, WholeContext}, description::Description, notifications::{Notification, NotificationReason}, tags::{NewTag, Tag}, user::UserStats}};
+use crate::{ai_interaction::{AiEndpointSender, endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponse, EndpointResponseVariant}, tools::ProximaTool}, database::{DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseSender, ToolRequest, access_modes::AccessModeID, chats::{Chat, ChatID, SessionType}, configuration::ChatConfigID, context::{ContextData, ContextPart, ContextPosition, WholeContext}, description::Description, notifications::{Notification, NotificationReason}, tags::{NewTag, Tag}, user::UserStats}};
 
 pub type JobID = usize;
 
@@ -285,6 +285,62 @@ impl Job {
                 }
                 else {
                     JobExecution::Failure { must_reschedule: true }
+                }
+            }
+            JobType::Callback(config) => {
+                let (db_req, db_recv) = DatabaseRequest::new(super::DatabaseRequestVariant::Get(DatabaseItemID::ChatConfiguration(*config)), None);
+                database_sender.send_prio(db_req);
+                if let Ok(DatabaseReply { variant:DatabaseReplyVariant::ReturnedItem(DatabaseItem::ChatConfig(conf)) }) = db_recv.recv() {
+                    let current_time = format!("{}", Utc::now());
+                    let mut default_text = include_str!("../../configuration/prompts/callback.txt").to_string();
+                    default_text = default_text.replace("CURRENT_TIME", current_time.trim());
+                    default_text = match self.repeat {
+                        JobRepeat::No => default_text.replace("REPEAT_STATEMENT", ""),
+                        _ => match conf.get_tools() {
+                            Some(tools) => {
+                                let mut addition = format!("\nThis job repeats on a regular schedule");
+                                if tools.get_used_tools().contains(&ProximaTool::Jobs) {
+                                    addition += ", in order to stop this, you can use the Job tool";
+                                }
+                                if tools.get_used_tools().contains(&ProximaTool::Memory) {
+                                    addition += ", in order to carry memory between each call, you can use the memory tool";
+                                }
+                                default_text.replace("REPEAT_STATEMENT", &addition)
+                            },
+                            None => default_text.replace("REPEAT_STATEMENT", "\nThis job repeats on a regular schedule")
+                        }
+                    };
+                    let starting_data = ContextData::Text(format!("{default_text}{}", self.description.clone().unwrap()));
+                    let context = match conf.tools.clone() {
+                        Some(tools) => {
+                            WholeContext::new_with_all_settings(vec![ContextPart::new_user_prompt_with_tools(vec![starting_data])], &conf)
+                        },
+                        None => WholeContext::new_with_all_settings(vec![ContextPart::new(vec![starting_data], ContextPosition::User)], &conf)
+                    };
+                    
+                    let mut chat = Chat::new_with_id(0, context.clone(), None, 0, Some(conf.clone()));
+                    chat.access_modes.insert(1);
+                    let (db_req, db_recv) = DatabaseRequest::new(super::DatabaseRequestVariant::Add(DatabaseItem::Chat(chat)), None);
+                    database_sender.send_prio(db_req);
+                    if let Ok(DatabaseReply { variant:DatabaseReplyVariant::AddedItem(DatabaseItemID::Chat(chat_id)) }) = db_recv.recv() {
+                        let (ai_request, ai_recv) = EndpointRequest::new(
+                        EndpointRequestVariant::RespondToFullPrompt { whole_context: context, streaming: false, session_type: SessionType::Function, chat_settings: Some(conf.clone()), chat_id: Some(chat_id), access_mode: 1 }
+                        );
+                        ai_endpoint.send_prio(ai_request);
+                        if let Ok(EndpointResponse { variant:EndpointResponseVariant::MultiTurnBlock(new_context) }) = ai_recv.recv() {
+                            JobExecution::Success { must_reschedule: self.repeat.must_repeat() }
+                        }
+                        else {
+                            JobExecution::Failure { must_reschedule: self.repeat.must_repeat() }
+                        }
+
+                    }
+                    else {
+                        JobExecution::Failure { must_reschedule: self.repeat.must_repeat() }
+                    }
+                }
+                else {
+                    JobExecution::Failure { must_reschedule: self.repeat.must_repeat() }
                 }
             }
             _ => JobExecution::Failure { must_reschedule: false }

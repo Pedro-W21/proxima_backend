@@ -1,0 +1,5 @@
+This chat is a callback created from a scheduled job, it is CURRENT_TIME.REPEAT_STATEMENT
+Do not expect this chat to be seen by the user, you must use tools to alert them if your task requires you doing so
+
+the task you must complete is as follows :
+

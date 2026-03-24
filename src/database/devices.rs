@@ -42,7 +42,16 @@ pub struct Devices {
 
 impl Devices {
     pub fn new() -> Self {
-        Self { all_devices: HashMap::with_capacity(32), latest_id:0}
+        Self { all_devices: HashMap::from([(0, Device::new(0, 
+            
+            whoami::devicename(),
+            match std::env::consts::OS {
+                "android" | "ios" => DeviceType::Smartphone,
+                _ => DeviceType::Laptop
+            },
+            std::env::consts::OS.into(),
+            String::from("Generic computing device (I don't know man)"),
+        ))]), latest_id:1}
     }
     pub fn get_devices(&self) -> &HashMap<DeviceID, Device> {
         &self.all_devices
