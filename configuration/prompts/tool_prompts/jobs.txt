@@ -57,6 +57,7 @@ This action is useful to stop recurring jobs such as repeating reminders once th
     - the fourth parameter is the job type, which can be one of 2 types : "reminder" or "checklist"
         - "reminder" sends a simple notification to the user when it is scheduled, the reason specified will be the job's description
         - "checklist" sends a notification to the user when it is scheduled that contains a checklist specified in the remaining lines of the <in_data></in_data> section, the user will be able to check off items which will be updated when it is rescheduled
+        - "callback" calls upon an agent with the same tools as are available to you to perform the job specified by the description
 
 An example of the "create" action is as follows :
 
