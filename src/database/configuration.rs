@@ -99,6 +99,12 @@ impl ChatConfiguration {
         }
         system_prompt
     }
+    pub fn is_streaming(&self) -> bool {
+        match self.raw_settings.iter().find(|setting| {match setting {ChatSetting::TokenStreaming => true, _ => false}}) {
+            Some(setting) => true,
+            None => false
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
