@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use tags::{Tag, TagID, Tags};
 use user::{PersonalInformation, UserData};
 
-use crate::{ai_interaction::create_prompt::AgentPrompt, database::{configuration::{ChatConfigID, ChatConfiguration, ChatConfigurations}, context::WholeContext, jobs::{Job, JobID, Jobs}, loading_saving::{load_from_disk, save_to_disk}, media::{Base64EncodedString, Media, MediaHash, MediaStorage}, memories::{MemReqMax, Memories, Memory, MemoryID, MemoryRequest}, notifications::{Notification, NotificationID, Notifications}, user::UserStats}};
+use crate::{ai_interaction::create_prompt::AgentPrompt, database::{access_modes::AMSetting, configuration::{ChatConfigID, ChatConfiguration, ChatConfigurations}, context::WholeContext, jobs::{Job, JobID, Jobs}, loading_saving::{load_from_disk, save_to_disk}, media::{Base64EncodedString, Media, MediaHash, MediaStorage}, memories::{MemReqMax, Memories, Memory, MemoryID, MemoryRequest}, notifications::{Notification, NotificationID, Notifications}, user::UserStats}};
 
 pub mod tags;
 pub mod folders;
@@ -441,6 +441,7 @@ pub enum ToolRequest {
     GetPersistentMemoryFor(AccessModeID),
     GetAutoMemoryFor(AccessModeID, usize),
     GetMediaWithoutData(MediaHash),
+    UpdateAccessModeSettings(AccessModeID, HashMap<String, AMSetting>)
 }
 
 pub enum InternalDBReq {
@@ -893,6 +894,15 @@ impl DatabaseHandler {
                 }
                 else {
                     response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(DatabaseItemID::Media(media_hash)))})
+                }
+            },
+            ToolRequest::UpdateAccessModeSettings(access_mode_id, new_settings) => {
+                if let Some(access_mode) = self.database.access_modes.get_modes_mut().get_mut(&access_mode_id) {
+                    access_mode.am_settings = new_settings;
+                    response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted})
+                }
+                else {
+                    response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(DatabaseItemID::AccessMode(access_mode_id)))})
                 }
             }
         }

@@ -9,18 +9,35 @@ use super::tags::TagID;
 
 pub type AccessModeID = usize;
 
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub enum AMSetting {
+    Bool(bool),
+    Integer(i64),
+    String(String),
+    Float(f64)
+}
+
+impl Eq for AMSetting {
+
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AccessMode {
     id:AccessModeID,
     pub tags:HashSet<TagID>,
     pub added_on:DateTime<Utc>,
     pub name:String,
-    pub persistent_memory:Option<MemoryID>
+    pub persistent_memory:Option<MemoryID>,
+    pub am_settings:HashMap<String, AMSetting>
 }
 
 impl AccessMode {
     pub fn new(id:AccessModeID, tags:HashSet<TagID>, name:String) -> Self {
-        Self { id, tags, name, added_on:Utc::now(), persistent_memory:None }
+        Self { id, tags, name, added_on:Utc::now(), persistent_memory:None, am_settings:HashMap::with_capacity(8) }
+    }
+    pub fn with_settings(mut self, settings:HashMap<String, AMSetting>) -> Self {
+        self.am_settings = settings;
+        self
     }
     pub fn get_name(&self) -> &String {
         &self.name
@@ -46,8 +63,8 @@ impl AccessModes {
     pub fn new() -> Self {
         Self { 
             all_modes: HashMap::from([
-                (0, AccessMode {added_on:Utc::now(),id:0, tags:HashSet::new(), name:String::from("global"), persistent_memory:None}),
-                (1, AccessMode {added_on:Utc::now(),id:1, tags:HashSet::new(), name:String::from("callbacks"), persistent_memory:None}),
+                (0, AccessMode {added_on:Utc::now(),id:0, tags:HashSet::new(), name:String::from("global"), persistent_memory:None, am_settings:HashMap::new()}),
+                (1, AccessMode {added_on:Utc::now(),id:1, tags:HashSet::new(), name:String::from("callbacks"), persistent_memory:None, am_settings:HashMap::new()}),
             ]),
             latest_id:2
         }

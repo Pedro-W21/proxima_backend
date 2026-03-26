@@ -115,7 +115,8 @@ pub enum ChatSetting {
     AccessMode(AccessModeID),
     PrePrompt(ContextPart),
     RepeatedPrePrompt(ContextPart, RepeatPosition),
-    Tool(ProximaTool, Option<ProximaToolData>)
+    Tool(ProximaTool, Option<ProximaToolData>),
+    TokenStreaming,
 }
 
 
@@ -141,6 +142,7 @@ impl ChatSetting {
             Self::RepeatPenalty(minp) => format!("Repeat penalty : {}", *minp as f64/100.0),
             Self::TopK(minp) => format!("Top K : {}", *minp as f64/100.0),
             Self::TopP(minp) => format!("Top P : {}", *minp as f64/100.0),
+            Self::TokenStreaming => format!("Token streaming")
         }
     }
 }
