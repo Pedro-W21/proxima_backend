@@ -1,4 +1,4 @@
-use std::{ffi::{CStr, CString}, io::{Read, Write}, net::{Ipv4Addr, TcpListener, TcpStream}, sync::mpsc::{Receiver, Sender, channel}, thread, time::{Duration, Instant}};
+use std::{ffi::{CStr, CString}, io::{Read, Write}, net::{Ipv4Addr, TcpListener, TcpStream}, sync::mpsc::{Receiver, Sender, channel}, thread::{self, sleep}, time::{Duration, Instant}};
 
 use pyo3::{IntoPyObject, Python, pyclass, pymethods, types::PyAnyMethods};
 
@@ -31,6 +31,10 @@ impl LoggingStdio {
 
 fn main() {
     let listener = TcpListener::bind((Ipv4Addr::new(0, 0, 0, 0), 4096)).unwrap();
+    thread::spawn(|| {
+        sleep(Duration::from_millis(60000));
+        panic!("Execution timed out");
+    });
     let mut stream = listener.accept().unwrap();
     let command = read_proxima_python_toolcall_string(&mut stream.0).unwrap();
     let lines:Vec<&str> = command.lines().collect();

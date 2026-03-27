@@ -288,7 +288,7 @@ async fn send_streaming_response(receiver:Receiver<ContextData>, position:Contex
                 Ok(data) => {
                     total.add_data(data.clone());
                     sender.send(EndpointResponse { variant: EndpointResponseVariant::ContinueStream(data, position.clone()) });
-                    println!("[streaming response] Passing on token");
+                    // println!("[streaming response] Passing on token");
                 },
                 Err(error) => match error {
                     RecvTimeoutError::Disconnected => break,

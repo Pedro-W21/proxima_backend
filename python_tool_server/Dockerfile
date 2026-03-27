@@ -1,13 +1,13 @@
-FROM debian:latest
+FROM docker:latest
 
 WORKDIR /usr/src/app
 
-RUN apt-get update && apt-get install -y rustup gcc
+RUN apk update && apk add gcc rustup
 
-RUN rustup default stable
+RUN rustup-init -y --default-toolchain stable
 
 COPY . .
 
-RUN cargo build --release
+RUN /root/.cargo/bin/cargo build --release
 
 ENTRYPOINT [ "/usr/src/app/target/release/python_tool_server" ]

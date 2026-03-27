@@ -61,13 +61,13 @@ pub struct InFlightExecution {
 impl InFlightExecution {
     pub fn new(mut proxima_stream:(TcpStream, SocketAddr), request:PythonToolRequest, thread_number:usize, port:u16, finish_sender:Sender<u16>) -> Result<Self, ()> {
         println!("Creating execution");
-        let command = Command::new("docker").args(vec!["run", "-d"/*, "--name", &format!("proxima_python_{}", thread_number)*/, "-p", &format!("127.0.0.1:{port}:4096/tcp"), "proxima_python_executor:any" ]).output();
+        let command = Command::new("docker").args(vec!["run", "--network=bridge", "-d"/*, "--name", &format!("proxima_python_{}", thread_number)*/, "-p", &format!("0.0.0.0:{port}:4096/tcp"), "proxima_python_executor:any" ]).output();
         match command {
-            Ok(output) => match String::from_utf8(output.stdout) {
+            Ok(output) => match String::from_utf8(output.stderr) {
                 Ok(id) => {
 
-                    println!("Trying to connect to executor");
-                    let addr = SocketAddr::from((Ipv4Addr::new(127, 0, 0, 1), port));
+                    println!("Trying to connect to executor with id '{id}'");
+                    let addr = SocketAddr::from((Ipv4Addr::new(172, 17, 0, 1), port));
                     match TcpStream::connect_timeout(&addr, Duration::from_millis(5000)) {
                         Ok(mut python_stream) => {
                             println!("Connected to executor");
@@ -218,7 +218,7 @@ fn read_proxima_python_toolcall_string(stream:&mut TcpStream) -> Result<String, 
 
 impl ListenerData {
     pub fn new(port:u16, queue:Sender<((TcpStream, SocketAddr), PythonToolRequest)>) -> Self {
-        let listener = TcpListener::bind((Ipv4Addr::new(127, 0, 0, 1), port)).unwrap();
+        let listener = TcpListener::bind((Ipv4Addr::new(0, 0, 0, 0), port)).unwrap();
         Self { listener, queue }
     }
     pub fn listening_loop(&mut self) {

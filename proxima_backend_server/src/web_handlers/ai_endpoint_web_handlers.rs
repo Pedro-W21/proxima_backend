@@ -46,7 +46,7 @@ pub async fn ai_post_handler(payload: web::Json<AIPayload>, data: web::Data<Arc<
             let (sender, receiver):(Sender<Result<Bytes, SpecialError>>, Receiver<Result<Bytes, SpecialError>>) = channel(1000);
             spawn(async move {
                 loop {
-                    println!("[streaming response to client] waiting on tokens");
+                    // println!("[streaming response to client] waiting on tokens");
                     match recv.recv_timeout(Duration::from_millis(10)) {
                         Ok(reply) => {
                             sender.send(Ok(web::Bytes::from_owner(serde_json::to_string(&reply.variant).unwrap()))).await;
