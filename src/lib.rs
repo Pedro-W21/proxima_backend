@@ -1,6 +1,7 @@
 #![feature(mpmc_channel)]
 #![feature(step_trait)]
 #![feature(iter_intersperse)]
+#![feature(trim_prefix_suffix)]
 
 use std::{path::PathBuf, sync::{mpmc::channel, Arc}};
 

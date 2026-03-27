@@ -1033,7 +1033,7 @@ pub fn python_tool(mode:String, data:String, addr:SocketAddr) -> Result<String, 
                     match read_proxima_python_toolcall_string(&mut stream) {
                         Ok(server_response) => {
 
-                            println!("Received the full response");
+                            println!("Received the full response :\n {}", server_response.clone());
                             let mut output_stdout = String::with_capacity(1024);
                             let mut output_stderr = String::with_capacity(1024);
                             let mut response_slice = server_response.as_str();
@@ -1045,7 +1045,7 @@ pub fn python_tool(mode:String, data:String, addr:SocketAddr) -> Result<String, 
                                             match stdout_part.chars().next() {
                                                 Some(stdout_char) => 
                                                 {
-                                                    stdout_part = stdout_part.trim_start_matches(stdout_char);
+                                                    stdout_part = stdout_part.trim_prefix(stdout_char);
                                                     output_stdout.push(stdout_char);
                                                 },
                                                 None => break 'parsing,
@@ -1060,7 +1060,7 @@ pub fn python_tool(mode:String, data:String, addr:SocketAddr) -> Result<String, 
                                             match stderr_part.chars().next() {
                                                 Some(stderr_char) => 
                                                 {
-                                                    stderr_part = stderr_part.trim_start_matches(stderr_char);
+                                                    stderr_part = stderr_part.trim_prefix(stderr_char);
                                                     output_stderr.push(stderr_char);
                                                 },
                                                 None => break 'parsing,

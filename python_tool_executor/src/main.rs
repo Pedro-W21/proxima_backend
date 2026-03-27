@@ -32,7 +32,10 @@ impl LoggingStdio {
 fn main() {
     let listener = TcpListener::bind((Ipv4Addr::new(0, 0, 0, 0), 4096)).unwrap();
     thread::spawn(|| {
-        sleep(Duration::from_millis(60000));
+        let start = Instant::now();
+        while start.elapsed().as_secs() <= 60 {
+            sleep(Duration::from_millis(6000));
+        }
         panic!("Execution timed out");
     });
     let mut stream = listener.accept().unwrap();

@@ -63,7 +63,7 @@ impl InFlightExecution {
         println!("Creating execution");
         let command = Command::new("docker").args(vec!["run", "--network=bridge", "-d"/*, "--name", &format!("proxima_python_{}", thread_number)*/, "-p", &format!("0.0.0.0:{port}:4096/tcp"), "proxima_python_executor:any" ]).output();
         match command {
-            Ok(output) => match String::from_utf8(output.stderr) {
+            Ok(output) => match String::from_utf8(output.stdout) {
                 Ok(id) => {
 
                     println!("Trying to connect to executor with id '{id}'");
