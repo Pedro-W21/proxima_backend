@@ -10,6 +10,7 @@ use folders::{FolderID, Folders, ProxFolder};
 use loading_saving::create_or_repair_database_folder_structure;
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 use serde::{Deserialize, Serialize};
+use sha3::{Digest, Sha3_256};
 use tags::{Tag, TagID, Tags};
 use user::{PersonalInformation, UserData};
 
@@ -66,15 +67,21 @@ impl ProxDatabase {
     ) -> Self {
         Self { files, folders, chats, tags, personal_info, database_folder, devices, access_modes, configs, media, memories, notifications, jobs }
     }
-    pub fn new(pseudonym:String, password_hash:String, database_folder:PathBuf) -> Self {
+    pub fn new(pseudonym:String, password:String, database_folder:PathBuf) -> Self {
         if create_or_repair_database_folder_structure(database_folder.clone()) {
             let mut data = load_from_disk(database_folder.clone()).unwrap();
             data.personal_info.user_data.pseudonym = pseudonym;
+            let password_hash = {
+                let mut hasher = Sha3_256::new();
+                hasher.update(&password.as_bytes());
+                let hash:[u8 ; 32] = hasher.finalize().into();
+                Base64EncodedString::new(hash.to_vec())
+            };
             data.personal_info.user_data.password_hash = password_hash;
             data
         }
         else {
-            Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder, chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new(), notifications:Notifications::new(), jobs:Jobs::new() }
+            Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password), database_folder, chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new(), notifications:Notifications::new(), jobs:Jobs::new() }
         }
     }
     pub fn new_just_data(pseudonym:String, password_hash:String) -> ProxDatabase {

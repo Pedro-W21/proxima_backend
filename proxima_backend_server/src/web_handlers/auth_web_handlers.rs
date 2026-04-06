@@ -3,7 +3,7 @@ use std::sync::Arc;
 use actix_web::{web, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 
-use proxima_backend::{database::{devices::{Device, DeviceType}, DatabaseInfoReply, DatabaseInfoRequest, DatabaseItem, DatabaseItemID, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant}, proxima_handler::ProximaHandler};
+use proxima_backend::{database::{DatabaseInfoReply, DatabaseInfoRequest, DatabaseItem, DatabaseItemID, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, devices::{Device, DeviceType}, user::data_into_base64_hash}, proxima_handler::ProximaHandler};
 
 
 use proxima_backend::web_payloads::{AuthPayload, AuthResponse};
@@ -17,7 +17,7 @@ pub async fn auth_post_handler(payload: web::Json<AuthPayload>, data: web::Data<
     println!("[authentication] Received first DB response");
     match reply.variant {
         DatabaseReplyVariant::ReturnedItem(DatabaseItem::UserData(user_data)) => {
-            if user_data.password_hash == payload.password_hash && user_data.pseudonym == payload.username {
+            if user_data.password_hash == data_into_base64_hash(payload.password.as_bytes().to_vec()) && user_data.pseudonym == payload.username {
                 let (request, recv) = DatabaseRequest::new(DatabaseRequestVariant::NewAuthKey, None);
                 data.database.send_prio(request);
                 println!("[authentication] Sent second DB request"); 

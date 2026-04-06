@@ -27,7 +27,7 @@ pub struct AuthPayload {
     pub device_type:DeviceType,
     pub device_os:String,
     pub device_model:String,
-    pub password_hash:String,
+    pub password:String,
     pub username:String
 }
 #[derive(Clone, Serialize,Deserialize)]
@@ -48,7 +48,7 @@ impl AuthPayload {
             },
             device_os: std::env::consts::OS.into(),
             device_model: String::from("Generic computing device (I don't know man)"),
-            password_hash: password,
+            password,
             username: username 
         }
     }

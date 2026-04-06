@@ -1,5 +1,5 @@
 use std::{collections::{HashMap, HashSet}, fs::File, io::{Read, Write}, path::PathBuf};
-use base64::{Engine, prelude::BASE64_STANDARD};
+use base64::{Engine, prelude::{BASE64_STANDARD, BASE64_URL_SAFE}};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_256};
@@ -24,13 +24,14 @@ impl MediaStorage {
         access_modes.insert(0);
         let mut found_path = false;
         let mut test_path = proxima_data_path.clone();
-        let mut file_name = original_file_name.clone();
-        let mut bytes_added = 8;
+        let mut bytes_added = 12;
+        let mut file_name = get_file_name_with_n_hash_bytes(hash, bytes_added, original_file_name.clone());
+        file_name = file_name.replace(" ", "_");
         while !found_path {
             test_path.push(format!("media/{}", file_name.clone()));
             if test_path.exists() {
                 test_path = proxima_data_path.clone();
-                file_name = format!("{:#04x}_", hash[bytes_added]) + &file_name;
+                file_name = get_file_name_with_n_hash_bytes(hash, bytes_added, original_file_name.clone());
                 bytes_added += 1;
             }
             else {
@@ -42,7 +43,7 @@ impl MediaStorage {
             Err(e) => panic!("File should be creatable by now, error : {e}")
         }
         let time = Utc::now();
-        let hash = BASE64_STANDARD.encode(hash);
+        let hash = BASE64_URL_SAFE.encode(hash);
         let media = Media { 
             hash:hash.clone(),
             media_type,
@@ -78,6 +79,14 @@ impl MediaStorage {
     pub fn insert_media_raw(&mut self, media:Media) {
         self.data.insert(media.hash.clone(), media);
     }
+}
+
+fn get_file_name_with_n_hash_bytes(hash:[u8 ; 32], n:usize, og_name:String) -> String {
+    let mut total = String::with_capacity(64);
+    for i in 0..n {
+        total += &format!("{:#04x}", hash[i])[2..];
+    }
+    format!("{total}{og_name}")
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]

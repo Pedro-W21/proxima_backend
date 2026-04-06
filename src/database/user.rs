@@ -2,6 +2,9 @@ use std::f64;
 
 use chrono::{DateTime, TimeDelta, Utc};
 use serde::{Deserialize, Serialize};
+use sha3::{Digest, Sha3_256};
+
+use crate::database::media::Base64EncodedString;
 
 use super::{description::Description, tags::TagID};
 
@@ -12,18 +15,27 @@ pub struct PersonalInformation {
 }
 
 impl PersonalInformation {
-    pub fn new(pseudonym:String, password_hash:String) -> Self {
+    pub fn new(pseudonym:String, password:String) -> Self {
+        let password_hash = data_into_base64_hash(password.as_bytes().to_vec());
         Self {
             user_data: UserData {last_updated:Utc::now(),password_hash,pseudonym:pseudonym.clone(), name:None, interests:Vec::with_capacity(100), current_description:Description::new(format!("The user is currently anonymous, called by the name : {}", pseudonym)) },
             user_stats:UserStats { heatmap:HeatMap::new(TimeDelta::minutes(5), TimeDelta::days(1), TimeDelta::days(7)) }
         }
     }
 }
+
+pub fn data_into_base64_hash(data:Vec<u8>) -> Base64EncodedString {
+    let mut hasher = Sha3_256::new();
+    hasher.update(&data);
+    let hash:[u8 ; 32] = hasher.finalize().into();
+    Base64EncodedString::new(hash.to_vec())
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UserData {
     name:Option<String>,
     pub pseudonym:String,
-    pub password_hash:String,
+    pub password_hash:Base64EncodedString,
     interests:Vec<Interest>,
     pub last_updated:DateTime<Utc>,
     current_description:Description
