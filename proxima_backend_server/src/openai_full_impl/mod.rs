@@ -1,4 +1,4 @@
-use std::{collections::HashMap, future::Future, pin::Pin, sync::{Arc, RwLock, mpmc::{Receiver, Sender, channel}}, thread, time::Duration};
+use std::{collections::HashMap, future::Future, pin::Pin, sync::{Arc, RwLock, mpmc::{Receiver, Sender, channel}, mpsc::RecvTimeoutError}, thread, time::Duration};
 
 use actix_web::rt::time::sleep;
 use base64::{Engine, engine::general_purpose::URL_SAFE, prelude::BASE64_STANDARD};
@@ -152,8 +152,7 @@ impl BackendAPI for OpenAIFullBackend {
         let (sender_to_client, receiver_for_client) = channel();
         tokio::spawn(async move {
 
-            sender_clone.send((Ok(ChatCompletionResponse { id: None, object: None, created: 100, model: String::from("AAAA"), choices: vec![], usage: Usage {prompt_tokens:1, completion_tokens:1, total_tokens:2}, system_fingerprint: None }), session_clones)).unwrap();
-            let mut receiver =
+            let receiver =
             match config {
                 Some(config) => 
                 {
@@ -163,29 +162,38 @@ impl BackendAPI for OpenAIFullBackend {
                         .presence_penalty(config.get_presence_penalty())
                         .top_p(config.get_top_p())
                         .frequency_penalty(config.get_repeat_penalty());
-                    client.chat_completion_stream(request).await.unwrap()
+                    client.chat_completion_stream(request).await
                 }
                 None => {
                     let request = ChatCompletionStreamRequest::new(model_clone, messages_clones);
-                    client.chat_completion_stream(request).await.unwrap()
+                    client.chat_completion_stream(request).await
                 }
             };
-            let mut total = Vec::new();
-            loop {
-                match receiver.next().await {
-                    Some(completion) => {
-                        total.push(completion.clone());
-                        match completion {
-                            ChatCompletionStreamResponse::Content(content) => {
-                                sender_to_client.send(ContextData::Text(content.clone()));
+            match receiver {
+                Ok(mut receiver) => {
+                    sender_clone.send((Ok(ChatCompletionResponse { id: None, object: None, created: 100, model: String::from("AAAA"), choices: vec![], usage: Usage {prompt_tokens:1, completion_tokens:1, total_tokens:2}, system_fingerprint: None }), session_clones)).unwrap();
+                    let mut total = Vec::new();
+                    loop {
+                        match receiver.next().await {
+                            Some(completion) => {
+                                total.push(completion.clone());
+                                match completion {
+                                    ChatCompletionStreamResponse::Content(content) => {
+                                        sender_to_client.send(ContextData::Text(content.clone()));
+                                    },
+                                    ChatCompletionStreamResponse::Done => break,
+                                    _ => ()
+                                }
                             },
-                            ChatCompletionStreamResponse::Done => break,
-                            _ => ()
+                            None => break,
                         }
-                    },
-                    None => break,
+                    }
+                },
+                Err(_) => {
+                    sender_clone.send((Err(APIError::CustomError { message: format!("Couldn't reach backend") }), session_clones)).unwrap();
                 }
             }
+            
         
         });
         let completion = Box::pin( (async move || {
@@ -203,7 +211,7 @@ impl BackendAPI for OpenAIFullBackend {
         Self { api_key:String::new(), url:String::new(), model:String::new(), sessions:HashMap::with_capacity(16), latest_session_id:0, tasks:Arc::new(RwLock::new(Vec::new())), task_sender:send, results_recv:recv, total_tasks:0}
     
     }
-    async fn get_response_to_latest_prompt_for(&mut self, session:SessionID) -> Response {
+    async fn get_response_to_latest_prompt_for(&mut self, session:SessionID) -> Result<Response, BackendError> {
         'a: while self.total_tasks > 0 {
                 {
                     self.total_tasks -= 1;
@@ -215,16 +223,20 @@ impl BackendAPI for OpenAIFullBackend {
                 }
                 
                 loop {
-                    if let Ok((result, session_id)) = self.results_recv.recv_timeout(Duration::from_millis(10)) {
-                        let response = result.unwrap();
-                        let completion = if response.choices.len() > 0 {
-                            let msg = response.choices[0].clone().message;
-                            msg.content.clone()
-                        }
-                        else {
-                            Some(format!(" "))
-                        };
-                        match self.sessions.get_mut(&session_id) {
+                    match self.results_recv.recv_timeout(Duration::from_millis(10)) {
+                        Ok((result, session_id)) => {
+                            let response = match result {
+                                Ok(resp) => resp,
+                                Err(_) => return Err(BackendError::BackendUnavailable)
+                            };
+                            let completion = if response.choices.len() > 0 {
+                                let msg = response.choices[0].clone().message;
+                                msg.content.clone()
+                            }
+                            else {
+                                Some(format!(" "))
+                            };
+                            match self.sessions.get_mut(&session_id) {
                                 Some(session_data) => {
                                     match &mut session_data.session_data {
                                         OpenAISessionData::ChatComp { messages, context_ver, waiting_on } => {
@@ -239,6 +251,11 @@ impl BackendAPI for OpenAIFullBackend {
                                 }
                                 None => ()
                             }
+                        },
+                        Err(error) => match error {
+                            RecvTimeoutError::Disconnected => return Err(BackendError::BackendUnavailable),
+                            _ => ()
+                        } 
                     }
                     sleep(Duration::from_millis(90)).await;
                 }
@@ -247,7 +264,7 @@ impl BackendAPI for OpenAIFullBackend {
         match self.sessions.get_mut(&session) {
             Some(sess) => {
                 let value = sess.session_data.get_response().clone().unwrap();
-                value
+                Ok(value)
             },
             None => panic!("Session is supposed to exist")
         }

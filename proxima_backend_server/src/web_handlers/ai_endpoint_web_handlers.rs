@@ -3,7 +3,7 @@ use std::{fmt::Display, io::Stderr, sync::{Arc, mpsc::RecvTimeoutError}};
 use actix_web::{HttpResponse, Responder, cookie::time::{Error, error::Format}, rt::{spawn, time::sleep}, web::{self, Bytes}};
 use serde::{Deserialize, Serialize};
 
-use proxima_backend::{ai_interaction::endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}, database::{DatabaseItemID, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant}, proxima_handler::ProximaHandler};
+use proxima_backend::{ai_interaction::endpoint_api::{EndpointError, EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}, database::{DatabaseItemID, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant}, proxima_handler::ProximaHandler};
 use tokio::sync::mpsc::{Receiver, Sender, channel};
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -64,7 +64,13 @@ pub async fn ai_post_handler(payload: web::Json<AIPayload>, data: web::Data<Arc<
         }
         else {
             let reply = recv.recv().unwrap();
-            HttpResponse::Ok().json(AIResponse {reply:reply.variant})
+            match reply.variant.clone() {
+                EndpointResponseVariant::EndpointError(error) => match error {
+                    EndpointError::BackendUnavailable { url } => HttpResponse::NotFound().json(AIResponse {reply:reply.variant})
+                },
+                _ => HttpResponse::Ok().json(AIResponse {reply:reply.variant})
+            }
+            
         }
         
     }

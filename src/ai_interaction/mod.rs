@@ -80,7 +80,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                         }
                         let id = self.backend.send_new_prompt(whole_context.clone(), session_type, Some(settings.clone()), self.database_sender.clone())?;
                         println!("Sent prompt !!!");
-                        let mut response = self.backend.get_response_to_latest_prompt_for(id).await;
+                        let mut response = self.backend.get_response_to_latest_prompt_for(id).await?;
                         
                         match settings.get_tools() {
                             Some(tools) => {
@@ -100,7 +100,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                                     }
                                     let id = self.backend.send_new_prompt(whole_context.clone(), session_type, Some(settings.clone()), self.database_sender.clone())?;
                                     println!("Sent prompt !!!");
-                                    response = self.backend.get_response_to_latest_prompt_for(id).await;
+                                    response = self.backend.get_response_to_latest_prompt_for(id).await?;
                                     i += 1;
                                 }
                                 if looks_like_nonstandard_final_response(&response) {
@@ -126,7 +126,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                         println!("in no-setting response cycle");
                         let id = self.backend.send_new_prompt(whole_context.clone(), session_type, None, self.database_sender.clone())?;
                         println!("Sent prompt !!!");
-                        let response = self.backend.get_response_to_latest_prompt_for(id).await;
+                        let response = self.backend.get_response_to_latest_prompt_for(id).await?;
                         println!("got response");
                         whole_context.add_part(response.clone());
                         self.update_chat(whole_context, chat_id, access_mode).await;
@@ -152,7 +152,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                         let (id, receiver) = self.backend.send_new_prompt_streaming(whole_context.clone(), session_type, Some(settings.clone()), self.database_sender.clone())?;
                         println!("Sent prompt !!!");
                         send_streaming_response(receiver, ContextPosition::AI, self.response_sender.clone(), rep_sender.clone()).await;
-                        let mut response = self.backend.get_response_to_latest_prompt_for(id).await;
+                        let mut response = self.backend.get_response_to_latest_prompt_for(id).await?;
                         loop {
                             match rep_recv.recv_timeout(Duration::from_millis(20)) {
                                 Ok(resp) => {
@@ -191,7 +191,7 @@ impl<B:BackendAPI> RequestHandler<B> {
 
                                     send_streaming_response(receiver, ContextPosition::AI, self.response_sender.clone(), rep_sender.clone()).await;
                                     println!("Sent prompt !!!");
-                                    response = self.backend.get_response_to_latest_prompt_for(id).await;
+                                    response = self.backend.get_response_to_latest_prompt_for(id).await?;
                                     loop {
                                         match rep_recv.recv_timeout(Duration::from_millis(20)) {
                                             Ok(resp) => {
@@ -236,7 +236,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                         println!("Preparing streaming response");
                         send_streaming_response(receiver, ContextPosition::AI, self.response_sender.clone(), rep_sender.clone()).await;
                         println!("sending streaming response");
-                        let mut response = self.backend.get_response_to_latest_prompt_for(id).await;
+                        let mut response = self.backend.get_response_to_latest_prompt_for(id).await?;
                         loop {
                             match rep_recv.recv_timeout(Duration::from_millis(20)) {
                                 Ok(resp) => {
@@ -266,7 +266,7 @@ impl<B:BackendAPI> RequestHandler<B> {
 #[cfg(not(target_family = "wasm"))]
 async fn send_streaming_response(receiver:Receiver<ContextData>, position:ContextPosition, sender:Sender<EndpointResponse>, total_sender:Sender<ContextPart>) {
     tokio::spawn(async move  {
-        let mut total = ContextPart::new(vec![], position.clone());
+        let mut total = ContextPart::new(Vec::with_capacity(512), position.clone());
 
         println!("[streaming response] Waiting on first token");
         loop {
@@ -276,7 +276,14 @@ async fn send_streaming_response(receiver:Receiver<ContextData>, position:Contex
                     sender.send(EndpointResponse { variant: EndpointResponseVariant::StartStream(data, position.clone()) });
                     break;
                 },
-                Err(error) => ()
+                Err(error) => match error {
+                    RecvTimeoutError::Disconnected => {
+                        println!("[streaming response] tunnel broke, assuming unavailable backend");
+                        sender.send(EndpointResponse { variant: EndpointResponseVariant::EndpointError(EndpointError::BackendUnavailable { url: String::from("") }) });
+                        return
+                    },
+                    _ => ()
+                }
             }
             special_bad_wait(50).await;
         }
@@ -428,6 +435,8 @@ pub async fn handle_request<B:BackendAPI + Send + 'static>(db_sender:DatabaseSen
                     RequestHandler::new(db_sender, request, response.clone(), B::new(backend_conn), streaming, self_sender, runtime_tool_data).respond().await
                 };
                 value.unwrap_or_else(|error| {
+
+                    println!("[AI Endpoint] got a backend error, sending it");
                     match error {
                         BackendError::BackendUnavailable => response.send(EndpointResponse { variant: EndpointResponseVariant::EndpointError(EndpointError::BackendUnavailable { url: String::from("don't have url") }) }).unwrap(),
                         _ => panic!("Other types of errors not possible here"),

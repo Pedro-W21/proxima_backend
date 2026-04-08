@@ -140,7 +140,7 @@ impl BackendAPI for OpenAIBackend {
         Self { creds: Credentials::new(String::new(), String::new()), model:String::new(), sessions:HashMap::with_capacity(16), latest_session_id:0, tasks:Arc::new(RwLock::new(Vec::new())), task_sender:send, results_recv:recv, total_tasks:0}
     
     }
-    async fn get_response_to_latest_prompt_for(&mut self, session:SessionID) -> Response {
+    async fn get_response_to_latest_prompt_for(&mut self, session:SessionID) -> Result<Response, BackendError> {
         'a: while self.total_tasks > 0 {
                 {
                     self.total_tasks -= 1;
@@ -177,7 +177,7 @@ impl BackendAPI for OpenAIBackend {
         match self.sessions.get_mut(&session) {
             Some(sess) => {
                 let value = sess.session_data.get_response().clone().unwrap();
-                value
+                Ok(value)
             },
             None => panic!("Session is supposed to exist")
         }
