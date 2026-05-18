@@ -1,5 +1,6 @@
 use std::{cmp::Ordering, collections::{HashMap, HashSet}, io::{Read, Write}, net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream}, num::{NonZeroU32, NonZeroUsize}, str::FromStr, sync::{mpmc::Receiver, mpsc::RecvTimeoutError}, time::Duration};
 
+use async_std::path::PathBuf;
 use chrono::{Date, DateTime, Days, Local, Months, NaiveDate, NaiveTime, TimeDelta, Timelike, Utc};
 use html_parser::{Dom, Element, Node};
 use rand::{Rng, rng};
@@ -173,7 +174,8 @@ pub enum ProximaTool {
     Rng,
     Memory,
     Jobs,
-    Time
+    Time,
+    Filesystem
 }
 
 impl ProximaTool {
@@ -188,6 +190,7 @@ impl ProximaTool {
             Self::Memory => false,
             Self::Jobs => false,
             Self::Time => true,
+            Self::Filesystem => true,
         }
     }
     pub fn is_valid_action(&self, action:&String) -> bool {
@@ -227,6 +230,10 @@ impl ProximaTool {
             Self::Time => match action.trim() {
                 "get" => true,
                 _ => false,
+            },
+            Self::Filesystem => match action.trim() {
+                "create" | "read" | "write" | "delete" | "move" | "copy" | "cd" | "list" => true,
+                _ => false,
             }
         }
     }
@@ -241,6 +248,7 @@ impl ProximaTool {
             Self::Memory => "Long term, cross-session dated memory storage and retrieval".to_string(),
             Self::Jobs => "Creation of tasks to be executed in the future like reminders or agent heartbeats".to_string(),
             Self::Time => "Getting the current time in different timezones".to_string(),
+            Self::Filesystem => "Exploring and interacting with the Proxima Filesystem".to_string(),
         }
     }
     pub fn try_from_string(string:String) -> Option<Self> {
@@ -254,6 +262,7 @@ impl ProximaTool {
             "Memory" => Some(Self::Memory),
             "Jobs" => Some(Self::Jobs),
             "Time" => Some(Self::Time),
+            "Filesystem" => Some(Self::Filesystem),
             _ => None
         }
     }
@@ -430,6 +439,9 @@ impl ProximaTool {
             Self::Time => {
                 let (output_str, new_data) = time_tool(action.to_string(), data, input)?;
                 Ok((generate_call_output("Jobs".to_string(), action.to_string(), output_str), new_data))
+            },
+            Self::Filesystem => {
+                Err(ProximaToolCallError::Parsing(ToolParsingError::NotAnElement))
             }
         }
     }
@@ -453,7 +465,8 @@ impl ProximaTool {
             Self::Jobs => None,
             Self::Time => Some(
                 ProximaToolData::Time { mode: TimeToolMode::Active }
-            )
+            ),
+            Self::Filesystem => Some(ProximaToolData::Filesystem { working_directory: format!("/") })
         }
     }
     pub fn get_description_string(&self, data:Option<&ProximaToolData>) -> String {
@@ -473,6 +486,7 @@ impl ProximaTool {
             Self::Memory => String::from(include_str!("../../configuration/prompts/tool_prompts/memory.txt")),
             Self::Jobs => String::from(include_str!("../../configuration/prompts/tool_prompts/jobs.txt")),
             Self::Time => String::from(include_str!("../../configuration/prompts/tool_prompts/time.txt")),
+            Self::Filesystem => String::from(include_str!("../../configuration/prompts/tool_prompts/filesystem.txt")),
         }
     }
     pub fn get_name(&self) -> String {
@@ -485,7 +499,8 @@ impl ProximaTool {
             Self::Rng => format!("RNG"),
             Self::Memory => format!("Memory"),
             Self::Jobs => format!("Jobs"),
-            Self::Time => format!("Time")
+            Self::Time => format!("Time"),
+            Self::Filesystem => format!("Filesystem")
         }
     }
 }
@@ -1249,7 +1264,8 @@ pub enum ProximaToolData {
     LocalMemory(HashMap<String, String>),
     Agent(AgentToolData),
     Memory {mode:MemoryToolMode},
-    Time {mode:TimeToolMode}
+    Time {mode:TimeToolMode},
+    Filesystem {working_directory:String}
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -1278,7 +1294,8 @@ impl ProximaToolData {
                     ContextPosition::Tool(_) if *after_tools => ContextData::Text(format!("<current_time>\n{}\n</current_time>", Utc::now())),
                     _ => ContextData::Text(format!("")),
                 }
-            }
+            },
+            Self::Filesystem { working_directory } => ContextData::Text(format!("<filesystem>\n{}\nCURRENT_DIRECTORY_CONTENTS\n</filesystem>\n", working_directory.clone(), ))
         }
     }
     pub fn get_local_mem_data(&self) -> HashMap<String, String> {

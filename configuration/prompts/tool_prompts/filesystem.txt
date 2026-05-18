@@ -1,0 +1,172 @@
+<ToolDescription>
+
+<ToolName>
+Filesystem
+</ToolName>
+
+<ToolUse>
+The Filesystem tool lets you interact with Proxima's filesystem
+To use this tool, you have 8 modes : 
+- create : create new files or folders with {"file"/"folder"} {path, absolute or relative} on each line of the <in_data></in_data> section, for example :
+
+<call>
+<tool>
+Filesystem
+</tool>
+<action>
+create
+</action>
+<in_data>/
+file /0/project_directory/code/test.py
+folder code/test_modules
+</in_data>
+</call>
+
+- read : read files or folders by putting their paths (absolute or relative) on each line of the <in_data></in_data> section, for example :
+
+<call>
+<tool>
+Filesystem
+</tool>
+<action>
+read
+</action>
+<in_data>
+/0/project_directory/code/test.py
+code/test_modules
+numbered /0/project_directory/code/main.py
+</in_data>
+</call>
+
+Reading a folder will list its contents, and you may get numbered lines on a file by adding "numbered" before the file path on the same line
+
+- write : specify a file with its path on the first line of the <in_data></in_data> section and the following lines will be written to it, for example :
+
+<call>
+<tool>
+Filesystem
+</tool>
+<action>
+write
+</action>
+<in_data>
+/0/project_directory/code/test.py
+def test_function():
+    print("Test starting...")
+    if 1 + 1 == 2:
+        print("Test successful !")
+    else:
+        print("Test failed.")
+</in_data>
+</call>
+
+- delete : list any number of files or folders to be deleted, one on each line of the <in_data></in_data> section :
+
+<call>
+<tool>
+Filesystem
+</tool>
+<action>
+delete
+</action>
+<in_data>
+/0/project_directory/code/test.py
+code/main_modules
+recursive code/test_modules
+</in_data>
+</call>
+
+by default, directories will not be deleted if they still contain anything, but adding "recursive" before the folder path will recursively destroy directory children if there are less than 16 of them.
+
+use the Time tool whenever you need to query the most up to date time.
+
+- move : this moves the file or folder specified on the first line of the <in_data></in_data> section to the location specified on the second line (must be a folder), for example :
+
+<call>
+<tool>
+Filesystem
+</tool>
+<action>
+move
+</action>
+<in_data>
+/0/project_directory/code/secret_test.py
+code/test_modules
+</in_data>
+</call>
+
+- copy : this has the same syntax as the "move" action, but copies the files/folders instead of moving them
+
+- cd : this changes the working directory to the folder at the absolute or relative path provided on the first line of the <in_data></in_data> section, for example :
+
+<call>
+<tool>
+Filesystem
+</tool>
+<action>
+cd
+</action>
+<in_data>
+/0/project_directory/code/test_modules/
+</in_data>
+</call>
+
+the working directory is the implicit start of the path of any relative path
+
+Note : the filesystem provided through this tool is similar to a standard linux filesystem, with a few differences :
+- symlinks don't exist
+- nothing can be created by you on the root of the whole filesystem ("/"), instead, the only folders on this level represent all devices the user is using to interact with you, with their unique id :
+    - device 0 is *always* accessible, it is the server device, so all paths starting with "/0/" are always accessible if they exist
+    - other devices (1,2,3...) are not guaranteed to be accessible, and may have extended periods of unavailability.
+    - reading the root folder "/" using the "read" action will still work as expected, giving the list of available device folders
+    - you should prioritize using device 0 unless the user specifically asks otherwise or their prompt requires using another device (for example, creating a survival guide available offline, the user may not have access to the server without internet so you should use the user's device in that case)
+
+</ToolUse>
+
+<ToolOutput>
+
+the Filesystem tool will automatically provide a reminder of the current working directory and its contents in a <filesystem></filesystem> section in the prompt, the latest one is always the current one, older ones are left in context to reduce the need to read folders, for example :
+
+<filesystem>
+working directory : /project_directory/
+contents :
+- folder : code
+- file : README.md
+- file : LICENSE
+</filesystem>
+
+The output_data for each mode will look like this : 
+- create : a success message if the files/folders specified could be created, an error otherwise
+- read : a list of all read files/folders and their contents on the following lines, for example : 
+
+<output_data>
+contents of file : /project_directory/code/test.py
+{contents of this file}
+----------
+contents of folder : /project_directory/code/test_modules
+- file : test_1.py
+- file : test_utils.py
+----------
+numbered contents of file : /project_directory/code/main.py
+1 import random
+2 import time
+[...]
+----------
+</output_data>
+
+- write : a success message if the writing could be done, an error otherwise
+- delete : same thing for deletion
+- move : a success message containing the new absolute path of the file if it could be moved
+- copy : same thing as moving
+- cd : a success message containing the new working directory
+
+</ToolOutput>
+
+<ToolErrors>
+There are a few generic types of errors :
+- invalid path : if a given path points to something that doesn't exist when the action requires it does (applicable to read, write, delete, move, and copy actions)
+- forbidden path : if a given path points to something that you do not have access to, the command using it will be canceled and you will be notified
+- path already exists : if a given path points to something that exists when it shouldn't (applicable to the create action, as well as the target folders of the move and copy actions if they already contain the move/copy source)
+</ToolErrors>
+
+</ToolDescription>

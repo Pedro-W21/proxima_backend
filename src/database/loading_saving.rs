@@ -15,7 +15,7 @@ const PREMADE_FILES:LazyLock<HashMap<String, Vec<u8>>> = LazyLock::new(|| {
             ("configurations".to_string(), serde_json::to_string(&ChatConfigurations::new()).unwrap().as_bytes().to_vec()),
             ("files".to_string(), serde_json::to_string(&Files::new()).unwrap().as_bytes().to_vec()),
             ("chats".to_string(), serde_json::to_string(&Chats::new()).unwrap().as_bytes().to_vec()),
-            ("devices".to_string(), serde_json::to_string(&Devices::new()).unwrap().as_bytes().to_vec()),
+            ("devices".to_string(), serde_json::to_string(&Devices::new(PathBuf::from("a"))).unwrap().as_bytes().to_vec()),
             ("access_modes".to_string(), serde_json::to_string(&AccessModes::new()).unwrap().as_bytes().to_vec()),
             ("tags".to_string(), serde_json::to_string(&Tags::new()).unwrap().as_bytes().to_vec()),
             ("media".to_string(), serde_json::to_string(&MediaStorage::new()).unwrap().as_bytes().to_vec()),

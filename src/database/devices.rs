@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -22,12 +22,13 @@ pub struct Device {
     pub device_type:DeviceType,
     pub device_os:String,
     pub device_model:String,
-    pub added_on:DateTime<Utc>
+    pub added_on:DateTime<Utc>,
+    pub filesystem_entry:Option<String>
 }
 
 impl Device {
-    pub fn new(id:DeviceID, device_name:String, device_type:DeviceType, device_os:String, device_model:String) -> Self {
-        Self { id, device_name, device_type, device_os, device_model, added_on:Utc::now() }
+    pub fn new(id:DeviceID, device_name:String, device_type:DeviceType, device_os:String, device_model:String, filesystem_entry:Option<String>) -> Self {
+        Self { id, device_name, device_type, device_os, device_model, added_on:Utc::now(), filesystem_entry }
     }
     pub fn get_id(&self) -> DeviceID {
         self.id
@@ -41,7 +42,7 @@ pub struct Devices {
 }
 
 impl Devices {
-    pub fn new() -> Self {
+    pub fn new(data_path:PathBuf) -> Self {
         Self { all_devices: HashMap::from([(0, Device::new(0, 
             
             whoami::devicename(),
@@ -51,6 +52,7 @@ impl Devices {
             },
             std::env::consts::OS.into(),
             String::from("Generic computing device (I don't know man)"),
+            Some(data_path.join("server_filesystem").to_string_lossy().to_string())
         ))]), latest_id:1}
     }
     pub fn get_devices(&self) -> &HashMap<DeviceID, Device> {

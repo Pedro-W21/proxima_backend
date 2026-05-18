@@ -31,6 +31,7 @@ pub mod media;
 pub mod memories;
 pub mod notifications;
 pub mod jobs;
+pub mod filesystem;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProxDatabase {
@@ -81,11 +82,11 @@ impl ProxDatabase {
             data
         }
         else {
-            Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password), database_folder, chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new(), notifications:Notifications::new(), jobs:Jobs::new() }
+            Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password), database_folder:database_folder.clone(), chats:Chats::new(), devices:Devices::new(database_folder.clone()), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new(), notifications:Notifications::new(), jobs:Jobs::new() }
         }
     }
     pub fn new_just_data(pseudonym:String, password_hash:String) -> ProxDatabase {
-        Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder:PathBuf::from("a/a/a/a/a/a/a/a"), chats:Chats::new(), devices:Devices::new(), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new(), notifications:Notifications::new(), jobs:Jobs::new() }
+        Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder:PathBuf::from("a/a/a/a/a/a/a/a"), chats:Chats::new(), devices:Devices::new(PathBuf::from("a/a/a/a/a/a/a/a")), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new(), notifications:Notifications::new(), jobs:Jobs::new() }
     }
     pub fn get_request(&self, id:DatabaseItemID) -> DatabaseReply {
         match id.clone() {
