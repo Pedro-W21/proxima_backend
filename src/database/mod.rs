@@ -879,6 +879,7 @@ impl DatabaseHandler {
                 }
             },
             ToolRequest::FilesystemUpdate(update) => {
+                self.database.filesystem.apply_update(update);
                 Ok(())
             }
         }
