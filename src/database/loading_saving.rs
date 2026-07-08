@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs::{DirBuilder, File}, io::{Read, Write}, path:
 
 use serde::{de::DeserializeOwned, Deserialize};
 
-use crate::database::{ProxDatabase, access_modes::AccessModes, chats::Chats, configuration::ChatConfigurations, devices::Devices, files::Files, folders::Folders, jobs::Jobs, media::MediaStorage, memories::Memories, notifications::Notifications, tags::Tags, user::PersonalInformation};
+use crate::database::{ProxDatabase, access_modes::AccessModes, chats::Chats, configuration::ChatConfigurations, devices::Devices, files::Files, filesystem::Filesystem, folders::Folders, jobs::Jobs, media::MediaStorage, memories::Memories, notifications::Notifications, tags::Tags, user::PersonalInformation};
 
 const PREMADE_FILES:LazyLock<HashMap<String, Vec<u8>>> = LazyLock::new(|| {
     HashMap::from(
@@ -11,9 +11,8 @@ const PREMADE_FILES:LazyLock<HashMap<String, Vec<u8>>> = LazyLock::new(|| {
             ("system_prompt".to_string(), Vec::from(include_bytes!("../../configuration/prompts/system.txt"))),
             ("internal_action_prompt".to_string(), Vec::from(include_bytes!("../../configuration/prompts/action.txt"))),
             ("local_memory_prompt".to_string(), Vec::from(include_bytes!("../../configuration/prompts/tool_prompts/local_memory.txt"))),
-            ("folders".to_string(), serde_json::to_string(&Folders::new()).unwrap().as_bytes().to_vec()),
+            ("filesystem".to_string(), serde_json::to_string(&Filesystem::new(None)).unwrap().as_bytes().to_vec()),
             ("configurations".to_string(), serde_json::to_string(&ChatConfigurations::new()).unwrap().as_bytes().to_vec()),
-            ("files".to_string(), serde_json::to_string(&Files::new()).unwrap().as_bytes().to_vec()),
             ("chats".to_string(), serde_json::to_string(&Chats::new()).unwrap().as_bytes().to_vec()),
             ("devices".to_string(), serde_json::to_string(&Devices::new(PathBuf::from("a"))).unwrap().as_bytes().to_vec()),
             ("access_modes".to_string(), serde_json::to_string(&AccessModes::new()).unwrap().as_bytes().to_vec()),
@@ -38,8 +37,7 @@ const FOLDER_STRUCTURE:LazyLock<HashMap<String, PathBuf>> = LazyLock::new(|| {
             ("description_prompt".to_string(), PathBuf::from("configuration/prompts/description.txt")),
             ("system_prompt".to_string(), PathBuf::from("configuration/prompts/system.txt")),
             ("internal_action_prompt".to_string(), PathBuf::from("configuration/prompts/action.txt")),
-            ("folders".to_string(), PathBuf::from("personal_data/database/folders.json")),
-            ("files".to_string(), PathBuf::from("personal_data/database/files.json")),
+            ("filesystem".to_string(), PathBuf::from("personal_data/database/filesystem.json")),
             ("user_data".to_string(), PathBuf::from("personal_data/database/user_data.json")),
             ("configurations".to_string(), PathBuf::from("personal_data/database/chat_configurations.json")),
             ("tags".to_string(), PathBuf::from("personal_data/database/tags.json")),
@@ -104,11 +102,8 @@ fn save_string_into_file(string:String, file:PathBuf) -> Result<(), std::io::Err
 }
 
 pub fn save_to_disk(database:ProxDatabase, absolute_starting_folder:PathBuf) -> Result<(),std::io::Error> {
-    let string = serde_json::to_string(&database.folders).unwrap();
-    save_string_into_file(string, absolute_starting_folder.join(FOLDER_STRUCTURE.get("folders").unwrap()))?;
-
-    let string = serde_json::to_string(&database.files).unwrap();
-    save_string_into_file(string, absolute_starting_folder.join(FOLDER_STRUCTURE.get("files").unwrap()))?;
+    let string = serde_json::to_string(&database.filesystem).unwrap();
+    save_string_into_file(string, absolute_starting_folder.join(FOLDER_STRUCTURE.get("filesystem").unwrap()))?;
 
     let string = serde_json::to_string(&database.devices).unwrap();
     save_string_into_file(string, absolute_starting_folder.join(FOLDER_STRUCTURE.get("devices").unwrap()))?;
@@ -154,8 +149,7 @@ fn load_json_from_file<T:DeserializeOwned>(file:PathBuf) -> Result<T, serde_json
 }
 
 pub fn load_from_disk(absolute_starting_folder:PathBuf) -> Result<ProxDatabase, serde_json::Error> {
-    let folders = load_json_from_file::<Folders>(absolute_starting_folder.join(FOLDER_STRUCTURE.get("folders").unwrap()))?;
-    let files = load_json_from_file::<Files>(absolute_starting_folder.join(FOLDER_STRUCTURE.get("files").unwrap()))?;
+    let filesystem = load_json_from_file::<Filesystem>(absolute_starting_folder.join(FOLDER_STRUCTURE.get("filesystem").unwrap()))?;
     let tags = load_json_from_file::<Tags>(absolute_starting_folder.join(FOLDER_STRUCTURE.get("tags").unwrap()))?;
     let devices = load_json_from_file::<Devices>(absolute_starting_folder.join(FOLDER_STRUCTURE.get("devices").unwrap()))?;
     let access_modes = load_json_from_file::<AccessModes>(absolute_starting_folder.join(FOLDER_STRUCTURE.get("access_modes").unwrap()))?;
@@ -166,5 +160,5 @@ pub fn load_from_disk(absolute_starting_folder:PathBuf) -> Result<ProxDatabase, 
     let memories = load_json_from_file::<Memories>(absolute_starting_folder.join(FOLDER_STRUCTURE.get("memories").unwrap()))?;
     let notifications = load_json_from_file::<Notifications>(absolute_starting_folder.join(FOLDER_STRUCTURE.get("notifications").unwrap()))?;
     let jobs = load_json_from_file::<Jobs>(absolute_starting_folder.join(FOLDER_STRUCTURE.get("jobs").unwrap()))?;
-    Ok(ProxDatabase::from_parts(files, folders, chats, tags, personal_information, absolute_starting_folder, devices, access_modes, configs, media, memories, notifications, jobs))
+    Ok(ProxDatabase::from_parts(filesystem, chats, tags, personal_information, absolute_starting_folder, devices, access_modes, configs, media, memories, notifications, jobs))
 }

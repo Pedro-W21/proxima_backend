@@ -29,7 +29,7 @@ pub async fn auth_post_handler(payload: web::Json<AuthPayload>, data: web::Data<
                         data.database.send_prio(request);
                         println!("[authentication] Sent third DB request"); 
                         match recv.recv().unwrap().variant {
-                            DatabaseReplyVariant::Info(DatabaseInfoReply::NumbersOfItems { devices, chats, folders, files, tags, access_modes }) => {
+                            DatabaseReplyVariant::Info(DatabaseInfoReply::NumbersOfItems { devices, chats, filesystem, tags, access_modes }) => {
                                 println!("[authentication] Received third DB response");
                                 let mut found_device = false;
                                 for i in 0..devices {

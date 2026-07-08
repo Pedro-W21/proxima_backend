@@ -1,9 +1,9 @@
-use std::{collections::{HashMap, HashSet}, f32::consts::E, fs::{self, DirBuilder, File, read_dir}, io::{self, Read, Write}, path::PathBuf, str::FromStr};
+use std::{collections::{HashMap, HashSet}, f32::consts::E, fs::{self, DirBuilder, File, read_dir}, io::{self, Read, Write}, path::PathBuf, str::FromStr, sync::mpmc::{Receiver, Sender, channel}, thread};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::database::{access_modes::AccessModeID, devices::DeviceID};
+use crate::database::{DatabaseRequest, DatabaseRequestVariant, DatabaseSender, InternalDBReq, ToolRequest, access_modes::AccessModeID, devices::DeviceID};
 
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,6 +66,32 @@ pub enum PathCreation {
 }
 
 impl Filesystem {
+    pub fn new(root_path:Option<String>) -> Self {
+        Self { device_filesystems: HashMap::from(
+            [
+                (
+                    0,
+                    DeviceFilesystem::new(
+                        FilesystemElement { created_on: Utc::now(), id: 0, parent: None, element_type: FSElementType::Folder { children: Vec::with_capacity(16) }, permissions: FSPermissions::new(Permissions::new(true, true)), name: "server_root".to_string() },
+                        root_path.unwrap_or("~/.proxima".to_string())
+                    )
+                )
+            ]
+        ), id_counter: 1 }
+    }
+    pub fn get_in_all_devices(&self, id:FSElementID) -> Result<&FilesystemElement, ProxFilesystemError> {
+        for device_id in self.device_filesystems.keys() {
+            self.get_direct_element(id, *device_id)?;
+        }
+        Err(ProxFilesystemError::ElementNotFound { element: format!("{}", id) })
+    }
+    pub fn get_total_elements(&self) -> usize {
+        let mut total = 0;
+        for device_id in self.device_filesystems.keys() {
+            total += self.device_filesystems.len();
+        }
+        total
+    }
     pub fn resolve_existing_path(&self, path_str:String, working_directory:Option<&ProximaPath>) -> Result<ProximaPath, ProxFilesystemError> {
         let (mut new_path, to_skip, mut current_element) = match working_directory {
             Some(wd) => (wd.clone(), 0, Some(wd.get_on_device_path().last().cloned().unwrap_or(self.device_filesystems.get(&wd.get_device()).unwrap().root_element))),
@@ -82,23 +108,25 @@ impl Filesystem {
                     let device = self.device_filesystems.get(&new_path.device).unwrap();
                     let element = device.elements.get(&elem).unwrap();
 
+                    if part == ".." {
+                        current_element = element.parent;
+                        new_path.on_device_path.remove(new_path.on_device_path.len() - 1);
+                        continue 'parsing;
+                    }
+                    else if part.trim() == "" || part.trim() == "." {
+                        continue 'parsing;
+                    }
                     match &element.element_type {
                         FSElementType::File => return Err(ProxFilesystemError::MovingIntoFile),
                         FSElementType::Folder { children } => {
-                            if part == ".." {
-                                current_element = element.parent;
-                                new_path.on_device_path.remove(new_path.on_device_path.len() - 1);
-                            }
-                            else {
-                                for child in children {
-                                    if &device.elements.get(child).unwrap().name == part {
-                                        current_element = Some(*child);
-                                        new_path.on_device_path.push(*child);
-                                        continue 'parsing;
-                                    }
+                            for child in children {
+                                if &device.elements.get(child).unwrap().name == part {
+                                    current_element = Some(*child);
+                                    new_path.on_device_path.push(*child);
+                                    continue 'parsing;
                                 }
-                                return Err(ProxFilesystemError::ElementNotFound { element: part.to_string() })
                             }
+                            return Err(ProxFilesystemError::ElementNotFound { element: part.to_string() })
                         }
                     }
                 },
@@ -117,7 +145,7 @@ impl Filesystem {
         Ok(new_path)
         
     }
-    pub fn resolve_new_path(&mut self, path_str:String, working_directory:Option<&ProximaPath>, creation:FSElementType, access_mode:AccessModeID, specific_perms:Permissions) -> Result<ProximaPath, ProxFilesystemError> {
+    pub fn resolve_new_path(&mut self, path_str:String, working_directory:Option<&ProximaPath>, creation:FSElementType, access_mode:AccessModeID, specific_perms:Permissions, update_sender:&DatabaseSender) -> Result<ProximaPath, ProxFilesystemError> {
         let (mut new_path, to_skip, mut current_element) = match working_directory {
             Some(wd) => (wd.clone(), 0, Some(wd.get_on_device_path().last().cloned().unwrap_or(self.device_filesystems.get(&wd.get_device()).unwrap().root_element))),
             None => {
@@ -133,26 +161,28 @@ impl Filesystem {
                 Some(elem) => {
                     let mut element = self.device_filesystems.get(&new_path.device).unwrap().elements.get(&elem).unwrap().clone();
 
+                    if *part == ".." {
+                        current_element = element.parent;
+                        new_path.on_device_path.remove(new_path.on_device_path.len() - 1);
+                        continue 'parsing;
+                    }
+                    else if part.trim() == "" || part.trim() == "." {
+                        continue 'parsing;
+                    }
                     match &mut element.element_type {
                         FSElementType::File => return Err(ProxFilesystemError::MovingIntoFile),
                         FSElementType::Folder { children } => {
-                            if *part == ".." {
-                                current_element = element.parent;
-                                new_path.on_device_path.remove(new_path.on_device_path.len() - 1);
-                            }
-                            else {
-                                for child in children.iter() {
-                                    if &self.device_filesystems.get(&new_path.device).unwrap().elements.get(child).unwrap().name == *part {
-                                        current_element = Some(*child);
-                                        new_path.on_device_path.push(*child);
-                                        continue 'parsing;
-                                    }
+                            for child in children.iter() {
+                                if &self.device_filesystems.get(&new_path.device).unwrap().elements.get(child).unwrap().name == *part {
+                                    current_element = Some(*child);
+                                    new_path.on_device_path.push(*child);
+                                    continue 'parsing;
                                 }
-                                let new_element = self.create(&new_path, part.to_string(), if i == parts.len() - 1 {creation.clone()} else {FSElementType::Folder { children: Vec::with_capacity(4) }}, FSPermissions::new_with_am_specific(Permissions::new(true, false), access_mode, specific_perms.clone()), access_mode)?;
-                                children.push(new_element);
-                                self.device_filesystems.get_mut(&new_path.device).unwrap().elements.insert(elem, element);
-                                new_path.on_device_path.push(new_element);
                             }
+                            let new_element = self.create(&new_path, part.to_string(), if i == parts.len() - 1 {creation.clone()} else {FSElementType::Folder { children: Vec::with_capacity(4) }}, FSPermissions::new_with_am_specific(Permissions::new(true, false), access_mode, specific_perms.clone()), access_mode, update_sender)?;
+                            children.push(new_element);
+                            self.device_filesystems.get_mut(&new_path.device).unwrap().elements.insert(elem, element);
+                            new_path.on_device_path.push(new_element);
                         }
                     }
                 },
@@ -222,7 +252,7 @@ impl Filesystem {
         }
         Ok(final_path)
     }
-    pub fn create(&mut self, parent_path:&ProximaPath, name:String, element_type:FSElementType, permissions:FSPermissions, access_mode:AccessModeID) -> Result<FSElementID, ProxFilesystemError> {
+    pub fn create(&mut self, parent_path:&ProximaPath, name:String, element_type:FSElementType, permissions:FSPermissions, access_mode:AccessModeID, update_sender:&DatabaseSender) -> Result<FSElementID, ProxFilesystemError> {
         let element_id = self.id_counter;
         self.id_counter += 1;
         let element = if parent_path.get_device() == 0 {
@@ -232,10 +262,12 @@ impl Filesystem {
             todo!("support creating files on non-server devices")
         };
         self.get_at_mut(parent_path, access_mode)?.get_children_mut().unwrap().push(element_id);
-        self.device_filesystems.get_mut(&parent_path.get_device()).unwrap().elements.insert(element_id, element);
+        self.device_filesystems.get_mut(&parent_path.get_device()).unwrap().elements.insert(element_id, element.clone());
+        let (req, _) = DatabaseRequest::new(DatabaseRequestVariant::ToolRequest(ToolRequest::FilesystemUpdate(FilesystemUpdate::InsertElement { path: parent_path.join(element_id), element })), None);
+        update_sender.send_prio(req);
         Ok(element_id)
     }
-    pub fn list(&mut self, target:&ProximaPath, access_mode:AccessModeID) -> Result<FSList, ProxFilesystemError> {
+    pub fn list(&mut self, target:&ProximaPath, access_mode:AccessModeID, update_sender:&DatabaseSender) -> Result<FSList, ProxFilesystemError> {
         let device_list = if target.get_device() == 0 {
             list_on_device(self.path_on_device(target)?)?
         }
@@ -249,7 +281,7 @@ impl Filesystem {
         let mut list = FSList {device:target.get_device(), parent:self.get_at(target,access_mode)?.id, elements:Vec::with_capacity(device_list.len())};
         for child_elem in device_list {
             let element_id = if !server_list.contains_key(&child_elem) {
-                self.create(target, child_elem.0, child_elem.1, FSPermissions::new_with_am_specific(Permissions::new(true, false), access_mode, Permissions::new(true, true)), access_mode)?
+                self.create(target, child_elem.0, child_elem.1, FSPermissions::new_with_am_specific(Permissions::new(true, false), access_mode, Permissions::new(true, true)), access_mode, update_sender)?
             }
             else {
                 *server_list.get(&child_elem).unwrap()
@@ -258,7 +290,7 @@ impl Filesystem {
         }
         Ok(list)
     }
-    pub fn read(&mut self, target:&ProximaPath, options:ReadOptions, access_mode:AccessModeID) -> Result<FSRead, ProxFilesystemError> {
+    pub fn read(&mut self, target:&ProximaPath, options:ReadOptions, access_mode:AccessModeID, update_sender:&DatabaseSender) -> Result<FSRead, ProxFilesystemError> {
         let element = self.get_at(target, access_mode)?;
         match &element.element_type {
             FSElementType::File => if target.get_device() == 0  {
@@ -267,32 +299,42 @@ impl Filesystem {
             else {
                 todo!("implement reading files on other devices")
             },
-            FSElementType::Folder { children } => Ok(FSRead::FolderRead { list: self.list(target, access_mode)? })
+            FSElementType::Folder { children } => Ok(FSRead::FolderRead { list: self.list(target, access_mode, update_sender)? })
         }
     }
-    pub fn delete(&mut self, target:&ProximaPath, recursive:bool, access_mode:AccessModeID) -> Result<Vec<FSElementID>, ProxFilesystemError> {
+    pub fn delete(&mut self, target:&ProximaPath, recursive:bool, access_mode:AccessModeID, delete_locally:bool, update_sender:Option<&DatabaseSender>) -> Result<Vec<FSElementID>, ProxFilesystemError> {
         let mut deleted = Vec::with_capacity(2);
         let element = self.get_at(target, access_mode)?.clone();
         match &element.element_type {
             FSElementType::File => if target.get_device() == 0  {
-
-                delete_on_device(self.path_on_device(target)?)?;
+                if delete_locally {
+                    delete_on_device(self.path_on_device(target)?)?;
+                    let (req, _) = DatabaseRequest::new(DatabaseRequestVariant::ToolRequest(ToolRequest::FilesystemUpdate(FilesystemUpdate::DeleteElement { path: target.clone() })), None);
+                    update_sender.unwrap().send_prio(req);
+                }
                 deleted.push(element.id);
                 self.get_at_mut(&target.parent(), access_mode)?.get_children_mut().unwrap().retain_mut(|elem| {*elem != element.id});
                 self.device_filesystems.get_mut(&target.get_device()).unwrap().elements.remove(&element.id);
                 Ok(deleted)
             }
             else {
-                todo!("implement reading files on other devices")
+                todo!("implement deleting files on other devices")
             },
             FSElementType::Folder { children } => {
                 if children.len() > 0 {
                     if recursive {
                         for child in children {
-                            let mut child_deleted = self.delete(&target.join(*child), true, access_mode)?;
+                            let mut child_deleted = self.delete(&target.join(*child), true, access_mode, delete_locally, update_sender)?;
                             deleted.append(&mut child_deleted);
                         }
-                        delete_on_device(self.path_on_device(target)?)?;
+                        if target.get_device() == 0 && delete_locally {
+                            delete_on_device(self.path_on_device(target)?)?;
+                            let (req, _) = DatabaseRequest::new(DatabaseRequestVariant::ToolRequest(ToolRequest::FilesystemUpdate(FilesystemUpdate::DeleteElement { path: target.clone() })), None);
+                            update_sender.unwrap().send_prio(req);
+                        }
+                        else {
+                            todo!("implement recursively deleting files on other devices")
+                        }
                         deleted.push(element.id);
                         self.get_at_mut(&target.parent(), access_mode)?.get_children_mut().unwrap().retain_mut(|elem| {*elem != element.id});
                         self.device_filesystems.get_mut(&target.get_device()).unwrap().elements.remove(&element.id);
@@ -303,7 +345,12 @@ impl Filesystem {
                     }
                 }
                 else {
-                    delete_on_device(self.path_on_device(target)?)?;
+                    if target.get_device() == 0 && delete_locally {
+                        delete_on_device(self.path_on_device(target)?)?;
+                    }
+                    else {
+                        todo!("implement recursively deleting files on other devices")
+                    }
                     deleted.push(element.id);
                     self.get_at_mut(&target.parent(), access_mode)?.get_children_mut().unwrap().retain_mut(|elem| {*elem != element.id});
                     self.device_filesystems.get_mut(&target.get_device()).unwrap().elements.remove(&element.id);
@@ -326,7 +373,7 @@ impl Filesystem {
             FSElementType::Folder { children } => Err(ProxFilesystemError::LocalElementNotFile)
         }
     }
-    fn copy_same_device(&mut self, source:&ProximaPath, destination:&ProximaPath, access_mode:AccessModeID) -> Result<Vec<FSElementID>, ProxFilesystemError> {
+    fn copy_same_device(&mut self, source:&ProximaPath, destination:&ProximaPath, access_mode:AccessModeID, update_sender:&DatabaseSender) -> Result<Vec<FSElementID>, ProxFilesystemError> {
         let mut new_ids = Vec::new();
         let source_elem = self.get_at(source, access_mode)?.clone();
         match &source_elem.element_type {
@@ -345,7 +392,7 @@ impl Filesystem {
                         Err(ProxFilesystemError::ElementAlreadyExists { name: source_elem.name.clone() })
                     }
                     else if source.get_device() == 0 {
-                        let new_id = self.create(destination, source_elem.name.clone(), FSElementType::File, source_elem.permissions.clone(), access_mode)?;
+                        let new_id = self.create(destination, source_elem.name.clone(), FSElementType::File, source_elem.permissions.clone(), access_mode, update_sender)?;
                         new_ids.push(new_id);
                         copy_file_on_device(self.path_on_device(source)?, self.path_on_device(&destination.join(new_id))?)?;
                         Ok(new_ids)
@@ -367,9 +414,9 @@ impl Filesystem {
                         else {
                             for child in source_children {
                                 let elem = self.get_at(&source.join(*child), access_mode)?;
-                                let new_id = self.create(destination, elem.name.clone(), elem.element_type.clone_empty(), elem.permissions.clone(), access_mode)?;
+                                let new_id = self.create(destination, elem.name.clone(), elem.element_type.clone_empty(), elem.permissions.clone(), access_mode, update_sender)?;
                                 new_ids.push(new_id);
-                                let mut child_new_ids = self.copy_same_device(&source.join(*child), &destination.join(new_id), access_mode)?;
+                                let mut child_new_ids = self.copy_same_device(&source.join(*child), &destination.join(new_id), access_mode, update_sender)?;
                                 new_ids.append(&mut child_new_ids);
                             }
                             Ok(new_ids)
@@ -379,7 +426,7 @@ impl Filesystem {
             }
         }
     }
-    fn copy_different_devices(&mut self, source:&ProximaPath, destination:&ProximaPath, access_mode:AccessModeID) -> Result<Vec<FSElementID>, ProxFilesystemError> {
+    fn copy_different_devices(&mut self, source:&ProximaPath, destination:&ProximaPath, access_mode:AccessModeID, update_sender:&DatabaseSender) -> Result<Vec<FSElementID>, ProxFilesystemError> {
         let mut new_ids = Vec::new();
         let source_elem = self.get_at(source, access_mode)?.clone();
         match &source_elem.element_type {
@@ -388,7 +435,7 @@ impl Filesystem {
                 match &dest_elem.element_type {
                     FSElementType::File => {
                         new_ids.push(dest_elem.id);
-                        let data = self.read(source, ReadOptions { line_numbering: false }, access_mode)?.get_binary().unwrap();
+                        let data = self.read(source, ReadOptions { line_numbering: false }, access_mode, update_sender)?.get_binary().unwrap();
                         self.write(destination, data, access_mode)?;
                         Ok(new_ids)
                     },
@@ -396,9 +443,9 @@ impl Filesystem {
                         Err(ProxFilesystemError::ElementAlreadyExists { name: source_elem.name.clone() })
                     }
                     else {
-                        let new_id = self.create(destination, source_elem.name.clone(), FSElementType::File, source_elem.permissions.clone(), access_mode)?;
+                        let new_id = self.create(destination, source_elem.name.clone(), FSElementType::File, source_elem.permissions.clone(), access_mode, update_sender)?;
                         new_ids.push(new_id);
-                        let data = self.read(source, ReadOptions { line_numbering: false }, access_mode)?.get_binary().unwrap();
+                        let data = self.read(source, ReadOptions { line_numbering: false }, access_mode, update_sender)?.get_binary().unwrap();
                         self.write(destination, data, access_mode)?;
                         Ok(new_ids)
                     }
@@ -416,9 +463,9 @@ impl Filesystem {
                         else {
                             for child in source_children {
                                 let elem = self.get_at(&source.join(*child), access_mode)?;
-                                let new_id = self.create(destination, elem.name.clone(), elem.element_type.clone_empty(), elem.permissions.clone(), access_mode)?;
+                                let new_id = self.create(destination, elem.name.clone(), elem.element_type.clone_empty(), elem.permissions.clone(), access_mode, update_sender)?;
                                 new_ids.push(new_id);
-                                let mut child_new_ids = self.copy_different_devices(&source.join(*child), &destination.join(new_id), access_mode)?;
+                                let mut child_new_ids = self.copy_different_devices(&source.join(*child), &destination.join(new_id), access_mode, update_sender)?;
                                 new_ids.append(&mut child_new_ids);
                             }
                             Ok(new_ids)
@@ -428,23 +475,51 @@ impl Filesystem {
             }
         }
     }
-    pub fn move_copy(&mut self, source:&ProximaPath, destination:&ProximaPath, copy:bool, access_mode:AccessModeID) -> Result<Vec<FSElementID>, ProxFilesystemError> {
+    pub fn move_copy(&mut self, source:&ProximaPath, destination:&ProximaPath, copy:bool, access_mode:AccessModeID, update_sender:&DatabaseSender) -> Result<Vec<FSElementID>, ProxFilesystemError> {
         let new_ids = if source.get_device() == destination.get_device() {
-            self.copy_same_device(source, destination, access_mode)?
+            self.copy_same_device(source, destination, access_mode, update_sender)?
         }
         else {
-            self.copy_different_devices(source, destination, access_mode)?
+            self.copy_different_devices(source, destination, access_mode, update_sender)?
         };
         if !copy {
-            self.delete(source, true, access_mode)?;
+            self.delete(source, true, access_mode, true, Some(update_sender))?;
         }
         Ok(new_ids)
 
     }
+
+    pub fn apply_update(&mut self, update:FilesystemUpdate) {
+        match update {
+            FilesystemUpdate::InsertElement { path, element } => {
+                if let Ok(parent_element) = self.get_at_mut(&path.parent(), 0) && let Some(children) = parent_element.get_children_mut() && !children.contains(&element.id) {
+                    children.push(element.id);
+                }
+                self.device_filesystems.get_mut(&path.get_device()).unwrap().elements.insert(element.id, element);
+            },
+            FilesystemUpdate::DeleteElement { path } => {
+                self.delete(&path, true, 0, false, None);
+            },
+            FilesystemUpdate::CreateDevice { device_id, root_element, root_path } => {
+                self.device_filesystems.insert(device_id, DeviceFilesystem::new(root_element, root_path));
+            }
+        }
+    }
+
+    pub fn get_direct_element(&self, id:FSElementID, device:DeviceID) -> Result<&FilesystemElement, ProxFilesystemError> {
+        match self.device_filesystems.get(&device) {
+            Some(device) => match device.elements.get(&id) {
+                Some(element) => Ok(element),
+                None => Err(ProxFilesystemError::ElementNotFound { element: format!("element not found") })
+            },
+            None => Err(ProxFilesystemError::NonExistentDevice { device_target: format!("{}", &device) })
+        }
+    }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ReadOptions {
-    line_numbering:bool,
+    pub line_numbering:bool,
 }
 
 pub struct FSList {
@@ -477,13 +552,18 @@ pub struct DeviceFilesystem {
 }
 
 impl DeviceFilesystem {
-
+    pub fn new(root_element:FilesystemElement, root_path:String) -> Self {
+        let mut elements = HashMap::with_capacity(256);
+        let id = root_element.id;
+        elements.insert(id, root_element);
+        Self { elements, root_element: id, root_path }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FilesystemElement {
     created_on:DateTime<Utc>,
-    id:FSElementID,
+    pub id:FSElementID,
     parent:Option<FSElementID>,
     element_type:FSElementType,
     permissions:FSPermissions,
@@ -491,6 +571,12 @@ pub struct FilesystemElement {
 }
 
 impl FilesystemElement {
+    pub fn get_name(&self) -> String {
+        self.name.clone()
+    }
+    pub fn get_id(&self) -> FSElementID {
+        self.id
+    }
     pub fn get_children_mut(&mut self) -> Option<&mut Vec<FSElementID>> {
         match &mut self.element_type {
             FSElementType::File => None, 
@@ -544,7 +630,7 @@ impl FSPermissions {
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct Permissions {
+pub struct Permissions {
     read:bool,
     write:bool,
 }
@@ -616,7 +702,20 @@ pub fn read_on_device(path_on_device:String, options:ReadOptions) -> Result<FSRe
         match file.read_to_end(&mut contents) {
             Ok(read) => Ok(
                 match str::from_utf8(&contents) {
-                    Ok(text) => FSRead::TextFileRead { file: text.to_string() },
+                    Ok(text) => {
+                        if options.line_numbering {
+                            let mut line_number = 1;
+                            let mut numbered = String::with_capacity(text.len() + text.len()/8);
+                            for line in text.lines() {
+                                numbered += &format!("{line_number} {line}\n");
+                                line_number += 1;
+                            }
+                            FSRead::TextFileRead { file: text.to_string() }
+                        }
+                        else {
+                            FSRead::TextFileRead { file: text.to_string() }
+                        }
+                    },
                     Err(_) => FSRead::BinaryFileRead { binary: contents }
                 }
             ),
@@ -653,4 +752,183 @@ pub fn copy_file_on_device(source_path:String, dest_path:String) -> Result<(), P
     let local_dest_path = PathBuf::from_str(&dest_path).unwrap();
 
     fs::copy(local_source_path, local_dest_path).map_err(|err| {ProxFilesystemError::LocalIOError { error: err }}).map(|val| {})
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub enum FilesystemUpdate {
+    InsertElement {
+        path:ProximaPath,
+        element:FilesystemElement
+    },
+    DeleteElement {
+        path:ProximaPath,
+
+    },
+    CreateDevice {
+        device_id:DeviceID,
+        root_element:FilesystemElement,
+        root_path:String,
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct FilesystemRequest {
+    filesystem_path:String,
+    variant:FilesystemRequestVariant,
+    access_mode:AccessModeID,
+    working_directory:Option<ProximaPath>
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub enum FilesystemRequestVariant {
+    List,
+    Read {
+        read_options:ReadOptions,
+    },
+    Create {
+        name:String,
+        element_type:FSElementType,
+        permissions:FSPermissions
+    },
+    Write {
+        contents:Vec<u8>,
+    },
+    Delete {
+        recursive:bool,
+    },
+    MoveCopy {
+        new_parent:String,
+        copy:bool
+    }
+
+}
+
+pub enum FilesystemResponse {
+    List {list:Vec<FilesystemElement>},
+    Read {read:ExternalFSRead},
+    Success,
+}
+
+pub enum ExternalFSRead {
+    Folder(Vec<FilesystemElement>),
+    TextFile(String),
+    BinaryFile(Vec<u8>)
+} 
+
+pub struct FullFilesystemRequest {
+    request:FilesystemRequest,
+    response_sender:Sender<Result<FilesystemResponse, ProxFilesystemError>>
+}
+
+impl FullFilesystemRequest {
+    pub fn new(path:String, variant:FilesystemRequestVariant, access_mode:AccessModeID, working_directory:Option<ProximaPath>) -> (Self, Receiver<Result<FilesystemResponse, ProxFilesystemError>>) {
+        let (sender, receiver) = channel();
+        (
+            Self {
+                response_sender:sender,
+                request:FilesystemRequest { filesystem_path: path, variant, access_mode, working_directory }
+            },
+            receiver
+        )
+    }
+}
+
+pub fn filesystem_thread(mut filesystem:Filesystem, db_updates:DatabaseSender) -> Sender<FullFilesystemRequest> {
+    let (send, requests) = channel::<FullFilesystemRequest>();
+    thread::spawn(move || {
+        loop {
+            match requests.recv() {
+                Ok(req) => {
+                    let out = match req.request.variant {
+                        FilesystemRequestVariant::List => {
+                            
+                            filesystem.resolve_existing_path(req.request.filesystem_path.clone(), req.request.working_directory.as_ref()).and_then(
+                                |path| {
+                                    filesystem.list(&path, req.request.access_mode, &db_updates).map(
+                                        |list| {
+                                            FilesystemResponse::List { list: list.elements.iter().map(|id| {
+                                                filesystem.get_direct_element(*id, path.device).unwrap().clone()
+                                            }).collect() }
+                                            
+                                        }
+                                    )
+                                }
+                            )
+                        },
+                        FilesystemRequestVariant::Read { read_options } => {
+                            filesystem.resolve_existing_path(req.request.filesystem_path.clone(), req.request.working_directory.as_ref()).and_then(
+                                |path| {
+                                    filesystem.read(&path, read_options, req.request.access_mode, &db_updates).map(
+                                        |read| {
+                                            match read {
+                                                FSRead::BinaryFileRead { binary } => FilesystemResponse::Read { read:ExternalFSRead::BinaryFile(binary) },
+                                                FSRead::TextFileRead { file } => FilesystemResponse::Read { read:ExternalFSRead::TextFile(file) },
+                                                FSRead::FolderRead { list } => FilesystemResponse::Read { read: ExternalFSRead::Folder(list.elements.iter().map(|id| {
+                                                filesystem.get_direct_element(*id, path.device).unwrap().clone()
+                                            }).collect()) }
+                                            }
+                                            
+                                        }
+                                    )
+                                }
+                            )
+                        },
+                        FilesystemRequestVariant::Write { contents } => {
+                            filesystem.resolve_existing_path(req.request.filesystem_path.clone(), req.request.working_directory.as_ref()).and_then(
+                                |path| {
+                                    filesystem.write(&path, contents, req.request.access_mode).map(
+                                        |write| {
+                                            FilesystemResponse::Success
+                    
+                                        }
+                                    )
+                                }
+                            )
+                        },
+                        FilesystemRequestVariant::Create { name, element_type, permissions } => {
+                            filesystem.resolve_existing_path(req.request.filesystem_path.clone(), req.request.working_directory.as_ref()).and_then(
+                                |parent_path| {
+                                    filesystem.create(&parent_path, name, element_type, permissions, req.request.access_mode, &db_updates).map(
+                                        |write| {
+                                            FilesystemResponse::Success
+                    
+                                        }
+                                    )
+                                }
+                            )
+                        },
+                        FilesystemRequestVariant::Delete { recursive } => {
+                            filesystem.resolve_existing_path(req.request.filesystem_path.clone(), req.request.working_directory.as_ref()).and_then(
+                                |path| {
+                                    filesystem.delete(&path, recursive, req.request.access_mode, true, Some(&db_updates)).map(
+                                        |write| {
+                                            FilesystemResponse::Success
+                    
+                                        }
+                                    )
+                                }
+                            )
+                        },
+                        FilesystemRequestVariant::MoveCopy { new_parent, copy } => {
+                            filesystem.resolve_existing_path(req.request.filesystem_path.clone(), req.request.working_directory.as_ref()).and_then(
+                                |path| {
+                                    filesystem.resolve_existing_path(new_parent, req.request.working_directory.as_ref()).and_then(
+                                        |new_parent_path| {
+                                            filesystem.move_copy(&path, &new_parent_path, copy, req.request.access_mode, &db_updates).map(|moved| {
+                                                FilesystemResponse::Success
+                                            })
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    };
+                    req.response_sender.send(out).unwrap();
+                },
+                Err(_) => break
+            }
+        }
+    });
+    
+    send
 }

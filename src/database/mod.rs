@@ -14,7 +14,7 @@ use sha3::{Digest, Sha3_256};
 use tags::{Tag, TagID, Tags};
 use user::{PersonalInformation, UserData};
 
-use crate::{ai_interaction::create_prompt::AgentPrompt, database::{access_modes::AMSetting, configuration::{ChatConfigID, ChatConfiguration, ChatConfigurations}, context::WholeContext, jobs::{Job, JobID, Jobs}, loading_saving::{load_from_disk, save_to_disk}, media::{Base64EncodedString, Media, MediaHash, MediaStorage}, memories::{MemReqMax, Memories, Memory, MemoryID, MemoryRequest}, notifications::{Notification, NotificationID, Notifications}, user::UserStats}};
+use crate::{ai_interaction::create_prompt::AgentPrompt, database::{access_modes::AMSetting, configuration::{ChatConfigID, ChatConfiguration, ChatConfigurations}, context::WholeContext, filesystem::{FSElementID, Filesystem, FilesystemElement, FilesystemUpdate}, jobs::{Job, JobID, Jobs}, loading_saving::{load_from_disk, save_to_disk}, media::{Base64EncodedString, Media, MediaHash, MediaStorage}, memories::{MemReqMax, Memories, Memory, MemoryID, MemoryRequest}, notifications::{Notification, NotificationID, Notifications}, user::UserStats}};
 
 pub mod tags;
 pub mod folders;
@@ -35,8 +35,7 @@ pub mod filesystem;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProxDatabase {
-    pub files:Files,
-    pub folders:Folders,
+    pub filesystem:Filesystem,
     pub chats:Chats,
     pub tags:Tags,
     pub personal_info:PersonalInformation,
@@ -52,8 +51,7 @@ pub struct ProxDatabase {
 
 impl ProxDatabase {
     pub fn from_parts(
-        files:Files,
-        folders:Folders,
+        filesystem:Filesystem,
         chats:Chats,
         tags:Tags,
         personal_info:PersonalInformation,
@@ -66,7 +64,7 @@ impl ProxDatabase {
         notifications:Notifications,
         jobs:Jobs
     ) -> Self {
-        Self { files, folders, chats, tags, personal_info, database_folder, devices, access_modes, configs, media, memories, notifications, jobs }
+        Self { filesystem, chats, tags, personal_info, database_folder, devices, access_modes, configs, media, memories, notifications, jobs }
     }
     pub fn new(pseudonym:String, password:String, database_folder:PathBuf) -> Self {
         if create_or_repair_database_folder_structure(database_folder.clone()) {
@@ -82,11 +80,11 @@ impl ProxDatabase {
             data
         }
         else {
-            Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password), database_folder:database_folder.clone(), chats:Chats::new(), devices:Devices::new(database_folder.clone()), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new(), notifications:Notifications::new(), jobs:Jobs::new() }
+            Self { filesystem:Filesystem::new(None), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password), database_folder:database_folder.clone(), chats:Chats::new(), devices:Devices::new(database_folder.clone()), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new(), notifications:Notifications::new(), jobs:Jobs::new() }
         }
     }
     pub fn new_just_data(pseudonym:String, password_hash:String) -> ProxDatabase {
-        Self { files: Files::new(), folders: Folders::new(), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder:PathBuf::from("a/a/a/a/a/a/a/a"), chats:Chats::new(), devices:Devices::new(PathBuf::from("a/a/a/a/a/a/a/a")), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new(), notifications:Notifications::new(), jobs:Jobs::new() }
+        Self { filesystem:Filesystem::new(None), tags: Tags::new(), personal_info: PersonalInformation::new(pseudonym, password_hash), database_folder:PathBuf::from("a/a/a/a/a/a/a/a"), chats:Chats::new(), devices:Devices::new(PathBuf::from("a/a/a/a/a/a/a/a")), access_modes:AccessModes::new(), configs:ChatConfigurations::new(), media:MediaStorage::new(), memories:Memories::new(), notifications:Notifications::new(), jobs:Jobs::new() }
     }
     pub fn get_request(&self, id:DatabaseItemID) -> DatabaseReply {
         match id.clone() {
@@ -113,19 +111,13 @@ impl ProxDatabase {
             }
             else {
                 DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(id)) }
-            }
-            DatabaseItemID::File(fileid) => if let Some(file) = self.files.get_file_by_id(fileid) {
-                DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::File(file.clone()))}
+            },
+            DatabaseItemID::Filesystem(elementid) => if let Ok(element) = self.filesystem.get_in_all_devices(elementid) {
+                DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Filesystem(element.clone()))}
             }
             else {
                 DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(id)) }
-            },
-            DatabaseItemID::Folder(folderid) => if let Some(folder) = self.folders.get_folder_by_id(folderid) {
-                DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Folder(folder.clone()))}
             }
-            else {
-                DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(id)) }
-            },
             DatabaseItemID::ChatConfiguration(configid) => if let Some(config) = self.configs.get_configs().get(&configid) {
                 DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::ChatConfig(config.clone()))}
             }
@@ -167,20 +159,6 @@ impl ProxDatabase {
             DatabaseItem::AccessMode(access_mode) if self.access_modes.update_mode(access_mode.clone()) => {DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
             DatabaseItem::Device(device) if self.devices.update_device(device.clone()) => {DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
             DatabaseItem::Chat(chat) if self.chats.update_chat(chat.clone()) => {DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
-            DatabaseItem::File(file) => {let id = file.get_id(); if self.files.get_file_mut(id).and_then(|f| {
-                *f = file; Some(0_u8)
-            }).is_some() {
-                DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }
-            } else {
-                DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(DatabaseItemID::File(id))) }
-            }},
-            DatabaseItem::Folder(folder) => {let id = folder.get_id();if self.folders.get_folder_mut(id).and_then(|f| {
-                *f = folder; Some(0_u8)
-            }).is_some() {
-                DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }
-            } else {
-                DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(DatabaseItemID::File(id))) }
-            }},
             DatabaseItem::ChatConfig(config) if self.configs.update_config(config.clone()) => {DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
             DatabaseItem::Media(media, data) if self.media.update_media(media.clone(), data.get_data(), self.database_folder.clone()) => {DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
             DatabaseItem::Memory(memory, data) if self.memories.update_memory(memory.id, data.clone(), self.database_folder.clone()) => {DatabaseReply { variant: DatabaseReplyVariant::RequestExecuted }},
@@ -197,15 +175,14 @@ impl ProxDatabase {
             DatabaseItem::AccessMode(access_mode) => {let id = self.access_modes.add_mode(access_mode); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::AccessMode(id)) }, DatabaseItemID::AccessMode(id))},
             DatabaseItem::Device(device) => {let id = self.devices.add_device(device); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Device(id)) }, DatabaseItemID::Device(id))},
             DatabaseItem::Chat(chat) => {let id = self.chats.add_chat_raw(chat); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Chat(id)) }, DatabaseItemID::Chat(id))},
-            DatabaseItem::File(file) => {let id = self.files.add_file_raw(file); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::File(id)) }, DatabaseItemID::File(id))},
-            DatabaseItem::Folder(folder) => {let id = self.folders.add_folder_raw(folder); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Folder(id)) }, DatabaseItemID::Folder(id))},
             DatabaseItem::ChatConfig(config) => {let id = self.configs.add_config(config); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::ChatConfiguration(id)) }, DatabaseItemID::ChatConfiguration(id))},
             DatabaseItem::Media(media, data) => {let id = self.media.add_media(data.get_data(), media.tags, media.access_modes, media.file_name, self.database_folder.clone(), media.media_type); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Media(id.clone())) }, DatabaseItemID::Media(id))},
             DatabaseItem::Memory(memory, data) => {let id = self.memories.add_memory(data, memory.access_modes, memory.tags, self.database_folder.clone(), memory.kind.clone()); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Memory(id)) }, DatabaseItemID::Memory(id))},
             DatabaseItem::UserData(user_data) => {self.personal_info.user_data = user_data; (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::UserData) }, DatabaseItemID::UserData)},
             DatabaseItem::UserStats(user_stats) => {self.personal_info.user_stats = user_stats; (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::UserStats) }, DatabaseItemID::UserStats)},
             DatabaseItem::Notification(notif) => {let id = self.notifications.add_notification(notif); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Notification(id)) }, DatabaseItemID::Notification(id))},
-            DatabaseItem::Job(job) => {let id = self.jobs.add_job(job); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Job(id)) }, DatabaseItemID::Job(id))}
+            DatabaseItem::Job(job) => {let id = self.jobs.add_job(job); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Job(id)) }, DatabaseItemID::Job(id))},
+            DatabaseItem::Filesystem(element) => {(DatabaseReply {variant:DatabaseReplyVariant::Error(DatabaseError::ItemCannotBeAdded(DatabaseItemID::Filesystem(element.get_id())))}, DatabaseItemID::Filesystem(element.get_id()))}
         }
     }
     pub fn remove_request(&mut self, id:DatabaseItemID) -> DatabaseReply {
@@ -230,8 +207,6 @@ impl ProxDatabase {
 pub enum DatabaseItem {
     Device(Device),
     Chat(Chat),
-    Folder(ProxFolder),
-    File(ProxFile),
     Tag(Tag),
     AccessMode(AccessMode),
     UserData(UserData),
@@ -240,7 +215,8 @@ pub enum DatabaseItem {
     ChatConfig(ChatConfiguration),
     Media(Media, Base64EncodedString),
     Memory(Memory, String),
-    Notification(Notification)
+    Notification(Notification),
+    Filesystem(FilesystemElement)
 }
 
 impl DatabaseItem {
@@ -249,8 +225,6 @@ impl DatabaseItem {
             Self::AccessMode(access_mode) => DatabaseItemID::AccessMode(access_mode.get_id()),
             Self::Chat(chat) => DatabaseItemID::Chat(chat.get_id()),
             Self::Device(device) => DatabaseItemID::Device(device.get_id()),
-            Self::File(file) => DatabaseItemID::File(file.get_id()),
-            Self::Folder(folder) => DatabaseItemID::Folder(folder.get_id()),
             Self::Tag(tag) => DatabaseItemID::Tag(tag.get_id()),
             Self::ChatConfig(config) => DatabaseItemID::ChatConfiguration(config.id),
             Self::UserData(user_data) => DatabaseItemID::UserData,
@@ -258,7 +232,8 @@ impl DatabaseItem {
             Self::Media(media, _) => DatabaseItemID::Media(media.hash.clone()),
             Self::Memory(memory, _) => DatabaseItemID::Memory(memory.id),
             Self::Notification(notif) => DatabaseItemID::Notification(notif.id),
-            Self::Job(job) => DatabaseItemID::Job(job.id)
+            Self::Job(job) => DatabaseItemID::Job(job.id),
+            Self::Filesystem(element) => DatabaseItemID::Filesystem(element.get_id())
         }
     }
     
@@ -274,14 +249,6 @@ impl DatabaseItem {
             },
             Self::Device(device) => match new_id {
                 DatabaseItemID::Device(id) => device.id = id,
-                _ => panic!("wrong kind of ID")
-            },
-            Self::File(file) => match new_id {
-                DatabaseItemID::File(id) => file.id = id,
-                _ => panic!("wrong kind of ID")
-            },
-            Self::Folder(folder) => match new_id {
-                DatabaseItemID::Folder(id) => folder.id = id,
                 _ => panic!("wrong kind of ID")
             },
             Self::Tag(tag) => match new_id {
@@ -308,6 +275,10 @@ impl DatabaseItem {
                 DatabaseItemID::Job(id) => job.id = id,
                 _ => panic!("wrong kind of ID")
             },
+            Self::Filesystem(element) => match new_id {
+                DatabaseItemID::Filesystem(id) => element.id = id,
+                _ => panic!("wrong kind of ID")
+            },
             Self::UserData(user_data) => (),
             Self::UserStats(user_stats) => ()
         }
@@ -319,8 +290,7 @@ impl DatabaseItem {
 pub enum DatabaseItemID {
     Device(DeviceID),
     Chat(ChatID),
-    Folder(FolderID),
-    File(FileID),
+    Filesystem(FSElementID),
     Tag(TagID),
     AccessMode(AccessModeID),
     UserData,
@@ -347,8 +317,6 @@ impl Step for DatabaseItemID {
             DatabaseItemID::AccessMode(id) => *id,
             DatabaseItemID::Chat(id) => *id,
             DatabaseItemID::Device(id) => *id,
-            DatabaseItemID::File(id) => *id,
-            DatabaseItemID::Folder(id) => *id,
             DatabaseItemID::Tag(id) => *id,
             DatabaseItemID::ChatConfiguration(id) => *id,
             DatabaseItemID::Media(media) => 1,
@@ -357,13 +325,12 @@ impl Step for DatabaseItemID {
             DatabaseItemID::Job(id) => *id,
             DatabaseItemID::UserData => 1,
             DatabaseItemID::UserStats => 1,
+            DatabaseItemID::Filesystem(id) => *id,
         };
         let end_id = match end {
             DatabaseItemID::AccessMode(id) => *id,
             DatabaseItemID::Chat(id) => *id,
             DatabaseItemID::Device(id) => *id,
-            DatabaseItemID::File(id) => *id,
-            DatabaseItemID::Folder(id) => *id,
             DatabaseItemID::Tag(id) => *id,
             DatabaseItemID::ChatConfiguration(id) => *id,
             DatabaseItemID::Memory(id) => *id,
@@ -372,6 +339,7 @@ impl Step for DatabaseItemID {
             DatabaseItemID::Media(media) => 0,
             DatabaseItemID::UserData => 0,
             DatabaseItemID::UserStats => 0,
+            DatabaseItemID::Filesystem(id) => *id,
         };
         if start_id > end_id {
             (usize::MAX, None)
@@ -384,8 +352,6 @@ impl Step for DatabaseItemID {
         match start {
             DatabaseItemID::AccessMode(id) => Some(DatabaseItemID::AccessMode(id + 1)),
             DatabaseItemID::Chat(id) => Some(DatabaseItemID::Chat(id + 1)),
-            DatabaseItemID::File(id) => Some(DatabaseItemID::File(id + 1)),
-            DatabaseItemID::Folder(id) => Some(DatabaseItemID::Folder(id + 1)),
             DatabaseItemID::Device(id) => Some(DatabaseItemID::Device(id + 1)),
             DatabaseItemID::Tag(id) => Some(DatabaseItemID::Tag(id + 1)),
             DatabaseItemID::ChatConfiguration(id) => Some(DatabaseItemID::ChatConfiguration(id + 1)),
@@ -394,15 +360,14 @@ impl Step for DatabaseItemID {
             DatabaseItemID::Job(id) => Some(DatabaseItemID::Job(id + 1)),
             DatabaseItemID::UserData => None,
             DatabaseItemID::UserStats => None,
-            DatabaseItemID::Media(med) => None
+            DatabaseItemID::Media(med) => None,
+            DatabaseItemID::Filesystem(id) => None
         }
     }
     fn backward_checked(start: Self, count: usize) -> Option<Self> {
         match start {
             DatabaseItemID::AccessMode(id) => Some(DatabaseItemID::AccessMode(id - 1)),
             DatabaseItemID::Chat(id) => Some(DatabaseItemID::Chat(id - 1)),
-            DatabaseItemID::File(id) => Some(DatabaseItemID::File(id - 1)),
-            DatabaseItemID::Folder(id) => Some(DatabaseItemID::Folder(id - 1)),
             DatabaseItemID::Device(id) => Some(DatabaseItemID::Device(id - 1)),
             DatabaseItemID::Tag(id) => Some(DatabaseItemID::Tag(id - 1)),
             DatabaseItemID::ChatConfiguration(id) => Some(DatabaseItemID::ChatConfiguration(id - 1)),
@@ -411,7 +376,8 @@ impl Step for DatabaseItemID {
             DatabaseItemID::Job(id) => Some(DatabaseItemID::Job(id - 1)),
             DatabaseItemID::UserData => None,
             DatabaseItemID::UserStats => None,
-            DatabaseItemID::Media(med) => None
+            DatabaseItemID::Media(med) => None,
+            DatabaseItemID::Filesystem(id) => None
         }
     }
 }
@@ -449,7 +415,8 @@ pub enum ToolRequest {
     GetPersistentMemoryFor(AccessModeID),
     GetAutoMemoryFor(AccessModeID, usize),
     GetMediaWithoutData(MediaHash),
-    UpdateAccessModeSettings(AccessModeID, HashMap<String, AMSetting>)
+    UpdateAccessModeSettings(AccessModeID, HashMap<String, AMSetting>),
+    FilesystemUpdate(FilesystemUpdate)
 }
 
 pub enum InternalDBReq {
@@ -497,7 +464,7 @@ impl TunnelRequest {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum DatabaseInfoReply {
-    NumbersOfItems {devices:usize, chats:usize, folders:usize, files:usize, tags:usize, access_modes:usize},
+    NumbersOfItems {devices:usize, chats:usize, filesystem:usize, tags:usize, access_modes:usize},
     LatestItems {items:Vec<Option<DatabaseItem>>},
     UnknownUpdates {updates:Vec<ClientUpdate>},
 }
@@ -524,7 +491,8 @@ pub enum DatabaseError {
     SavingError,
     ItemNotFound(DatabaseItemID),
     NoPersistentMemory,
-    ItemNotDeletable(DatabaseItemID)
+    ItemNotDeletable(DatabaseItemID),
+    ItemCannotBeAdded(DatabaseItemID)
 }
 
 pub struct DatabaseReply {
@@ -702,8 +670,7 @@ impl DatabaseHandler {
                     { 
                         devices: self.database.devices.get_devices().len(),
                         chats: self.database.chats.get_chats().len(),
-                        folders: self.database.folders.number_of_folders(),
-                        files: self.database.files.len(),
+                        filesystem: self.database.filesystem.get_total_elements(),
                         tags: self.database.tags.get_tags().len(),
                         access_modes: self.database.access_modes.get_modes().len()
                     }
@@ -715,8 +682,6 @@ impl DatabaseHandler {
                     self.database.devices.get_devices().get(&(self.database.devices.latest_id - 1)).map(|item| {DatabaseItem::Device(item.clone())}),
                     self.database.access_modes.get_modes().get(&(self.database.access_modes.latest_id - 1)).map(|item| {DatabaseItem::AccessMode(item.clone())}),
                     self.database.chats.get_last_chat().map(|item| {DatabaseItem::Chat(item.clone())}),
-                    self.database.folders.get_last_folder().map(|item| {DatabaseItem::Folder(item.clone())}),
-                    self.database.files.get_last_file().map(|item| {DatabaseItem::File(item.clone())}),
                     self.database.tags.get_last_tag().map(|item| {DatabaseItem::Tag(item.clone())}),
                     Some(DatabaseItem::UserData(self.database.personal_info.user_data.clone())),
 
@@ -912,6 +877,9 @@ impl DatabaseHandler {
                 else {
                     response_sender.send(DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(DatabaseItemID::AccessMode(access_mode_id)))})
                 }
+            },
+            ToolRequest::FilesystemUpdate(update) => {
+                Ok(())
             }
         }
     }

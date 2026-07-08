@@ -3,7 +3,7 @@ use std::{collections::HashSet, sync::{mpmc::{self, Receiver, Sender, channel}, 
 use backend_api::BackendAPI;
 use endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponse, EndpointResponseVariant};
 
-use crate::{ai_interaction::{backend_api::BackendError, tools::{ProximaTool, RuntimeToolData, bad_async_recv, handle_tool_calling_response, is_valid_tool_calling_response, looks_like_nonstandard_final_response}}, database::{DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, ToolRequest, access_modes::AccessModeID, chats::{ChatID, SessionType}, context::{ContextData, ContextPart, ContextPosition, ToolPart, ToolPartKind, WholeContext}, jobs::{Job, JobRepeat, JobTiming, JobType}, notifications::{Notification, NotificationReason}}};
+use crate::{ai_interaction::{backend_api::BackendError, tools::{ProximaTool, RuntimeToolData, bad_async_recv, handle_tool_calling_response, is_valid_tool_calling_response, looks_like_nonstandard_final_response}}, database::{DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, ToolRequest, access_modes::AccessModeID, chats::{ChatID, SessionType}, context::{ContextData, ContextPart, ContextPosition, ToolPart, ToolPartKind, WholeContext}, filesystem::{FilesystemRequestVariant, FilesystemResponse, FullFilesystemRequest}, jobs::{Job, JobRepeat, JobTiming, JobType}, notifications::{Notification, NotificationReason}}};
 
 use crate::ai_interaction::endpoint_api::EndpointError;
 pub mod endpoint_api;
@@ -75,8 +75,13 @@ impl<B:BackendAPI> RequestHandler<B> {
                     Some(settings) => {
                         println!("in settings response cycle");
 
-                        if let Some(tools) = settings.get_tools() && tools.has_automatic_memory() {
-                            update_auto_memory(&mut whole_context, self.database_sender.clone(), access_mode).await;
+                        if let Some(tools) = settings.get_tools() {
+                            if tools.has_automatic_memory() {
+                                update_auto_memory(&mut whole_context, self.database_sender.clone(), access_mode).await;
+                            }
+                            if let Some(wd) = tools.has_filesystem() {
+                                add_filesystem_insert(&mut whole_context, self.runtime_tool_data.filesystem_sender.clone(), access_mode, wd).await;
+                            }
                         }
                         let id = self.backend.send_new_prompt(whole_context.clone(), session_type, Some(settings.clone()), self.database_sender.clone())?;
                         println!("Sent prompt !!!");
@@ -97,6 +102,9 @@ impl<B:BackendAPI> RequestHandler<B> {
                                     println!("in settings response cycle");
                                     if tools.has_automatic_memory() {
                                         update_auto_memory(&mut whole_context, self.database_sender.clone(), access_mode).await;
+                                    }
+                                    if let Some(wd) = tools.has_filesystem() {
+                                        add_filesystem_insert(&mut whole_context, self.runtime_tool_data.filesystem_sender.clone(), access_mode, wd).await;
                                     }
                                     let id = self.backend.send_new_prompt(whole_context.clone(), session_type, Some(settings.clone()), self.database_sender.clone())?;
                                     println!("Sent prompt !!!");
@@ -146,8 +154,13 @@ impl<B:BackendAPI> RequestHandler<B> {
                 match chat_settings {
                     Some(settings) => {
                         println!("in settings response cycle");
-                        if let Some(tools) = settings.get_tools() && tools.has_automatic_memory() {
-                            update_auto_memory(&mut whole_context, self.database_sender.clone(), access_mode).await;
+                        if let Some(tools) = settings.get_tools()  {
+                            if tools.has_automatic_memory() {
+                                update_auto_memory(&mut whole_context, self.database_sender.clone(), access_mode).await;
+                            }
+                            if let Some(wd) = tools.has_filesystem() {
+                                add_filesystem_insert(&mut whole_context, self.runtime_tool_data.filesystem_sender.clone(), access_mode, wd).await;
+                            }
                         }
                         let (id, receiver) = self.backend.send_new_prompt_streaming(whole_context.clone(), session_type, Some(settings.clone()), self.database_sender.clone())?;
                         println!("Sent prompt !!!");
@@ -186,6 +199,9 @@ impl<B:BackendAPI> RequestHandler<B> {
                                     println!("in settings response cycle");
                                     if tools.has_automatic_memory() {
                                         update_auto_memory(&mut whole_context, self.database_sender.clone(), access_mode).await;
+                                    }
+                                    if let Some(wd) = tools.has_filesystem() {
+                                        add_filesystem_insert(&mut whole_context, self.runtime_tool_data.filesystem_sender.clone(), access_mode, wd).await;
                                     }
                                     let (id, receiver) = self.backend.send_new_prompt_streaming(whole_context.clone(), session_type, Some(settings.clone()), self.database_sender.clone())?;
 
@@ -343,6 +359,31 @@ async fn update_auto_memory(context:&mut WholeContext, db_sender:DatabaseSender,
             break;
         }
     }
+}
+async fn add_filesystem_insert(context:&mut WholeContext, fs_sender:Sender<FullFilesystemRequest>, access_mode:AccessModeID, working_directory:String) {
+    let (req, recv) = FullFilesystemRequest::new(working_directory.clone(), FilesystemRequestVariant::List, access_mode, None);
+    fs_sender.send(req).unwrap();
+    let response = bad_async_recv(recv).await;
+    let contents = match response {
+        Ok(FilesystemResponse::List { list }) => {
+            let mut total = String::with_capacity(256);
+            for elem in list {
+                let elem_type = if elem.get_children().is_some() {
+                    "folder"
+                }
+                else {
+                    "file"
+                };
+                total += &format!("\n - {elem_type} : {}", elem.get_name());
+            }
+            total
+        },
+        Err(error) => format!("\ngot error while reading working directory {:?}", error),
+        Ok(_) => panic!("impossible response"),
+    };
+    let full_part = format!("\n<filesystem>\nworking directory : {working_directory}\ncontents :{contents}\n</filesystem>\n");
+    context.add_part(ContextPart::new(vec![ContextData::Text(full_part)], ContextPosition::Tool(ToolPart { kind: ToolPartKind::DataInsert, related_tool: Some(ProximaTool::Filesystem) })));
+
 }
 
 

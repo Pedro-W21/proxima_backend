@@ -16,7 +16,7 @@ Filesystem
 <action>
 create
 </action>
-<in_data>/
+<in_data>
 file /0/project_directory/code/test.py
 folder code/test_modules
 </in_data>
@@ -128,7 +128,7 @@ Note : the filesystem provided through this tool is similar to a standard linux 
 the Filesystem tool will automatically provide a reminder of the current working directory and its contents in a <filesystem></filesystem> section in the prompt, the latest one is always the current one, older ones are left in context to reduce the need to read folders, for example :
 
 <filesystem>
-working directory : /project_directory/
+working directory : /0/project_directory/
 contents :
 - folder : code
 - file : README.md
@@ -140,14 +140,14 @@ The output_data for each mode will look like this :
 - read : a list of all read files/folders and their contents on the following lines, for example : 
 
 <output_data>
-contents of file : /project_directory/code/test.py
+contents of file : /0/project_directory/code/test.py
 {contents of this file}
 ----------
-contents of folder : /project_directory/code/test_modules
+contents of folder : /0/project_directory/code/test_modules
 - file : test_1.py
 - file : test_utils.py
 ----------
-numbered contents of file : /project_directory/code/main.py
+numbered contents of file : /0/project_directory/code/main.py
 1 import random
 2 import time
 [...]

@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, collections::{HashMap, HashSet}, io::{Read, Write}, net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream}, num::{NonZeroU32, NonZeroUsize}, str::FromStr, sync::{mpmc::Receiver, mpsc::RecvTimeoutError}, time::Duration};
+use std::{cmp::Ordering, collections::{HashMap, HashSet}, io::{Read, Write}, net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream}, num::{NonZeroU32, NonZeroUsize}, str::FromStr, sync::{mpmc::{Receiver, Sender}, mpsc::RecvTimeoutError}, time::Duration};
 
 use async_std::path::PathBuf;
 use chrono::{Date, DateTime, Days, Local, Months, NaiveDate, NaiveTime, TimeDelta, Timelike, Utc};
@@ -6,7 +6,7 @@ use html_parser::{Dom, Element, Node};
 use rand::{Rng, rng};
 use serde::{Deserialize, Serialize};
 
-use crate::{ai_interaction::{AiEndpointSender, endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}}, database::{DatabaseError, DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, ToolRequest, access_modes::AccessModeID, chats::{Chat, SessionType}, configuration::{ChatConfigID, ChatConfiguration, ChatSetting}, context::{ContextData, ContextPart, ContextPosition, ToolPart, ToolPartKind, WholeContext}, jobs::{Job, JobID, JobRepeat, JobTiming, JobType}, memories::{MemReqMax, Memory, MemoryKind, MemoryRequest}}};
+use crate::{ai_interaction::{AiEndpointSender, endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}}, database::{DatabaseError, DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, ToolRequest, access_modes::AccessModeID, chats::{Chat, SessionType}, configuration::{ChatConfigID, ChatConfiguration, ChatSetting}, context::{ContextData, ContextPart, ContextPosition, ToolPart, ToolPartKind, WholeContext}, filesystem::{ExternalFSRead, FSElementType, FSPermissions, FilesystemResponse, FullFilesystemRequest, Permissions, ProxFilesystemError, ReadOptions}, jobs::{Job, JobID, JobRepeat, JobTiming, JobType}, memories::{MemReqMax, Memory, MemoryKind, MemoryRequest}}};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Tools {
@@ -69,6 +69,15 @@ impl Tools {
             }
         }
         false
+    }
+    pub fn has_filesystem(&self) -> Option<String> {
+        for (tool, data) in &self.tool_data {
+            match data {
+                ProximaToolData::Filesystem { working_directory } => return Some(working_directory.clone()),
+                _ => () 
+            }
+        }
+        None
     }
     pub fn get_tool_calling_sys_prompt(&self) -> ContextPart {
         let mut base = String::from_utf8(Vec::from(include_bytes!("../../configuration/prompts/tool_prompts/tool_use.txt"))).unwrap();
@@ -148,7 +157,8 @@ pub enum ProximaToolCallError {
     Parsing(ToolParsingError),
     WebError(String),
     Network(String),
-    AgentError(String)
+    AgentError(String),
+    Filesystem(String)
 }
 
 impl ProximaToolCallError {
@@ -466,7 +476,7 @@ impl ProximaTool {
             Self::Time => Some(
                 ProximaToolData::Time { mode: TimeToolMode::Active }
             ),
-            Self::Filesystem => Some(ProximaToolData::Filesystem { working_directory: format!("/") })
+            Self::Filesystem => Some(ProximaToolData::Filesystem { working_directory: format!("/0/") })
         }
     }
     pub fn get_description_string(&self, data:Option<&ProximaToolData>) -> String {
@@ -1259,6 +1269,174 @@ async fn create_job_mode(input_lines:Vec<String>, database_connection:DatabaseSe
     }
 }
 
+async fn filesystem_tool(mode:String, input_lines:Vec<String>, filesystem_connection:Sender<FullFilesystemRequest>, access_mode_id:AccessModeID, working_directory:String) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError>  {
+    match mode.trim() {
+        "read" => filesystem_read(input_lines, filesystem_connection, access_mode_id, working_directory).await,
+        "write" => filesystem_write(input_lines, filesystem_connection, access_mode_id, working_directory).await,
+        "delete" => filesystem_delete(input_lines, filesystem_connection, access_mode_id, working_directory).await,
+        "move" => filesystem_move_copy(input_lines, filesystem_connection, access_mode_id, working_directory, false).await,
+        "copy" => filesystem_move_copy(input_lines, filesystem_connection, access_mode_id, working_directory, true).await,
+        "cd" => filesystem_cd(input_lines, filesystem_connection, access_mode_id, working_directory).await,
+        _ => panic!("impossible")
+    }
+}
+
+fn build_absolute_string_path(working_directory:String, path:String) -> String {
+    if path.starts_with('/') {
+        path
+    }
+    else {
+        working_directory + &path
+    }
+}
+
+async fn filesystem_read(input_lines:Vec<String>, filesystem_connection:Sender<FullFilesystemRequest>, access_mode_id:AccessModeID, working_directory:String) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
+    let mut total = String::with_capacity(256);
+    for line in input_lines {
+        let is_numbered = line.starts_with("numbered ");
+        let path = line.split_whitespace().skip(if is_numbered {1} else {0}).intersperse(" ").collect::<Vec<&str>>().concat();
+        let absolute_path = build_absolute_string_path(working_directory.clone(), path.clone());
+        let (req, recv) = FullFilesystemRequest::new(absolute_path, crate::database::filesystem::FilesystemRequestVariant::Read { read_options: ReadOptions {line_numbering: is_numbered} }, access_mode_id, None);
+        filesystem_connection.send(req).unwrap();
+        let response = bad_async_recv(recv).await.map_err(|err| {ProximaToolCallError::Filesystem(format!("{err:?}"))})?;
+        if let FilesystemResponse::Read { read } = response {
+            match read {
+                ExternalFSRead::TextFile(text) => if is_numbered {
+                    total += &format!("\nnumbered contents of file : {path}\n{text}\n----------")
+                }
+                else {
+                    total += &format!("\ncontents of file : {path}\n{text}\n----------")
+                },
+                ExternalFSRead::BinaryFile(_) => total += &format!("\ncontents of file : {path}\nfile is non-text binary, cannot be read using this tool\n----------"),
+                ExternalFSRead::Folder(folder) => {
+                    total += &format!("\ncontents of folder : {path}");
+                    for elem in folder {
+                        let elem_type = if elem.get_children().is_some() {
+                            "folder"
+                        }
+                        else {
+                            "file"
+                        };
+                        total += &format!("\n - {elem_type} : {}", elem.get_name())
+                    }
+                    total += &format!("\n----------");
+                }
+            }
+        }
+        else {
+            panic!("didn't get only possible Ok response to read")
+        }
+    }
+    Ok((total, Some(ProximaToolData::Filesystem { working_directory })))
+}
+
+async fn filesystem_create(input_lines:Vec<String>, filesystem_connection:Sender<FullFilesystemRequest>, access_mode_id:AccessModeID, working_directory:String) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
+    let mut total = String::with_capacity(256);
+    for line in input_lines {
+        let element_type = if line.starts_with("folder") {FSElementType::Folder { children: Vec::with_capacity(8) }} else {FSElementType::File};
+        let path = line.split_whitespace().skip(1).intersperse(" ").collect::<Vec<&str>>().concat();
+        let absolute_path = build_absolute_string_path(working_directory.clone(), path.clone());
+        let file_name = absolute_path.split("/").last().unwrap().to_string();
+        let (req, recv) = FullFilesystemRequest::new(absolute_path.trim_end_matches(&format!("/{file_name}")).to_string(), crate::database::filesystem::FilesystemRequestVariant::Create { name: file_name, element_type: element_type, permissions: FSPermissions::new(Permissions::new(true, true)) }, access_mode_id, None);
+        filesystem_connection.send(req).unwrap();
+        let response = bad_async_recv(recv).await.map_err(|err| {ProximaToolCallError::Filesystem(format!("{err:?}"))})?;
+        if let FilesystemResponse::Success = response {
+            total += &format!("\nelement {absolute_path} successfully created !");
+        }
+        else {
+            panic!("didn't get only possible Ok response to create")
+        }
+    }
+    Ok((total, Some(ProximaToolData::Filesystem { working_directory })))
+}
+
+async fn filesystem_delete(input_lines:Vec<String>, filesystem_connection:Sender<FullFilesystemRequest>, access_mode_id:AccessModeID, working_directory:String) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
+    let mut total = String::with_capacity(256);
+    for line in input_lines {
+        let is_recursive = line.starts_with("numbered ");
+        let path = line.split_whitespace().skip(if is_recursive {1} else {0}).intersperse(" ").collect::<Vec<&str>>().concat();
+        let absolute_path = build_absolute_string_path(working_directory.clone(), path.clone());
+        let (req, recv) = FullFilesystemRequest::new(absolute_path.clone(), crate::database::filesystem::FilesystemRequestVariant::Delete { recursive: is_recursive }, access_mode_id, None);
+        filesystem_connection.send(req).unwrap();
+        let response = bad_async_recv(recv).await.map_err(|err| {ProximaToolCallError::Filesystem(format!("{err:?}"))})?;
+        if let FilesystemResponse::Success = response {
+            total += &format!("\nelement {absolute_path} successfully deleted !");
+        }
+        else {
+            panic!("didn't get only possible Ok response to delete")
+        }
+    }
+    Ok((total, Some(ProximaToolData::Filesystem { working_directory })))
+}
+
+async fn filesystem_move_copy(input_lines:Vec<String>, filesystem_connection:Sender<FullFilesystemRequest>, access_mode_id:AccessModeID, working_directory:String, copy:bool) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
+    let mut total = String::with_capacity(256);
+    if input_lines.len() == 2 {
+        let old_path = input_lines[0].trim().to_string();
+        let absolute_old_path = build_absolute_string_path(working_directory.clone(), old_path.clone());
+        let new_parent_path = input_lines[1].trim().to_string();
+        let absolute_new_parent_path = build_absolute_string_path(working_directory.clone(), new_parent_path.clone());
+        let (req, recv) = FullFilesystemRequest::new(absolute_old_path.clone(), crate::database::filesystem::FilesystemRequestVariant::MoveCopy { new_parent: absolute_new_parent_path.clone(), copy }, access_mode_id, None);
+        filesystem_connection.send(req).unwrap();
+        let response = bad_async_recv(recv).await.map_err(|err| {ProximaToolCallError::Filesystem(format!("{err:?}"))})?;
+        if let FilesystemResponse::Success = response {
+            total += &format!("\nelement {absolute_old_path} successfully moved to {absolute_new_parent_path} !");
+        }
+        else {
+            panic!("didn't get only possible Ok response to read")
+        }
+        Ok((total, Some(ProximaToolData::Filesystem { working_directory })))
+    }
+    else {
+        Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 2, found: input_lines.len(), remarks: "You can only move elements from one location to another at a time".to_string() }))
+    }
+}
+
+async fn filesystem_write(input_lines:Vec<String>, filesystem_connection:Sender<FullFilesystemRequest>, access_mode_id:AccessModeID, working_directory:String) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
+    let mut total = String::with_capacity(256);
+    if input_lines.len() == 1 {
+        let old_path = input_lines[0].trim().to_string();
+        let absolute_old_path = build_absolute_string_path(working_directory.clone(), old_path.clone());
+        let file_contents = input_lines[1..].iter().intersperse(&"\n".to_string()).map(|s| {s.clone()}).collect::<Vec<String>>().concat();
+        let (req, recv) = FullFilesystemRequest::new(absolute_old_path.clone(), crate::database::filesystem::FilesystemRequestVariant::Write { contents: file_contents.as_bytes().to_vec() }, access_mode_id, None);
+        filesystem_connection.send(req).unwrap();
+        let response = bad_async_recv(recv).await.map_err(|err| {ProximaToolCallError::Filesystem(format!("{err:?}"))})?;
+        if let FilesystemResponse::Success = response {
+            total += &format!("\nFile contents successfully written to {absolute_old_path} !");
+        }
+        else {
+            panic!("didn't get only possible Ok response to read")
+        }
+        Ok((total, Some(ProximaToolData::Filesystem { working_directory })))
+    }
+    else {
+        Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 1, found: input_lines.len(), remarks: "You can only change to one directory".to_string() }))
+    }
+}
+
+
+async fn filesystem_cd(input_lines:Vec<String>, filesystem_connection:Sender<FullFilesystemRequest>, access_mode_id:AccessModeID, working_directory:String) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
+    let mut total = String::with_capacity(256);
+    if input_lines.len() >= 2 {
+        let old_path = input_lines[0].trim().to_string();
+        let absolute_old_path = build_absolute_string_path(working_directory.clone(), old_path.clone());
+        let (req, recv) = FullFilesystemRequest::new(absolute_old_path.clone(), crate::database::filesystem::FilesystemRequestVariant::Read { read_options: ReadOptions { line_numbering: false } }, access_mode_id, None);
+        filesystem_connection.send(req).unwrap();
+        let response = bad_async_recv(recv).await.map_err(|err| {ProximaToolCallError::Filesystem(format!("{err:?}"))})?;
+        if let FilesystemResponse::Read { read:ExternalFSRead::Folder(elements) } = response {
+            total += &format!("\nsuccessfully changed working directory to {absolute_old_path} !");
+            Ok((total, Some(ProximaToolData::Filesystem { working_directory:(absolute_old_path.trim_end_matches("/").to_string() + &"/") })))
+        }
+        else {
+            Err(ProximaToolCallError::Filesystem(format!("Tried to change directory into a file")))
+        }
+        
+    }
+    else {
+        Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 2, found: input_lines.len(), remarks: "You can only change to one directory".to_string() }))
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum ProximaToolData {
     LocalMemory(HashMap<String, String>),
@@ -1434,11 +1612,12 @@ async fn handle_tool_calling_context_data(text:&String, mut tools:Tools, databas
 #[derive(Clone)]
 pub struct RuntimeToolData {
     searxng_url:Option<String>,
-    python_server:Option<(Ipv4Addr, u16)>
+    python_server:Option<(Ipv4Addr, u16)>,
+    pub filesystem_sender:Sender<FullFilesystemRequest>
 }
 
 impl RuntimeToolData {
-    pub fn new(searxng_url:Option<String>, python_server:Option<(Ipv4Addr, u16)>) -> Self {
-        Self { searxng_url, python_server }
+    pub fn new(searxng_url:Option<String>, python_server:Option<(Ipv4Addr, u16)>, filesystem_sender:Sender<FullFilesystemRequest>) -> Self {
+        Self { searxng_url, python_server, filesystem_sender }
     }
 }
