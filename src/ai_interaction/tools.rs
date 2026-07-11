@@ -1396,7 +1396,7 @@ async fn filesystem_move_copy(input_lines:Vec<String>, filesystem_connection:Sen
 
 async fn filesystem_write(input_lines:Vec<String>, filesystem_connection:Sender<FullFilesystemRequest>, access_mode_id:AccessModeID, working_directory:String) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
     let mut total = String::with_capacity(256);
-    if input_lines.len() == 1 {
+    if input_lines.len() >= 2 {
         let old_path = input_lines[0].trim().to_string();
         let absolute_old_path = build_absolute_string_path(working_directory.clone(), old_path.clone());
         let file_contents = input_lines[1..].iter().intersperse(&"\n".to_string()).map(|s| {s.clone()}).collect::<Vec<String>>().concat();
@@ -1412,14 +1412,14 @@ async fn filesystem_write(input_lines:Vec<String>, filesystem_connection:Sender<
         Ok((total, Some(ProximaToolData::Filesystem { working_directory })))
     }
     else {
-        Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 1, found: input_lines.len(), remarks: "You can only change to one directory".to_string() }))
+        Err(ProximaToolCallError::Parsing(ToolParsingError::BadNumberOfArguments { expected: 2, found: input_lines.len(), remarks: "You need to provide a path and content to write into".to_string() }))
     }
 }
 
 
 async fn filesystem_cd(input_lines:Vec<String>, filesystem_connection:Sender<FullFilesystemRequest>, access_mode_id:AccessModeID, working_directory:String) -> Result<(String, Option<ProximaToolData>), ProximaToolCallError> {
     let mut total = String::with_capacity(256);
-    if input_lines.len() >= 2 {
+    if input_lines.len() == 1 {
         let old_path = input_lines[0].trim().to_string();
         let absolute_old_path = build_absolute_string_path(working_directory.clone(), old_path.clone());
         let (req, recv) = FullFilesystemRequest::new(absolute_old_path.clone(), crate::database::filesystem::FilesystemRequestVariant::Read { read_options: ReadOptions { line_numbering: false } }, access_mode_id, None);
