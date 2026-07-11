@@ -258,11 +258,14 @@ impl Filesystem {
     pub fn create(&mut self, parent_path:&ProximaPath, name:String, element_type:FSElementType, permissions:FSPermissions, access_mode:AccessModeID, update_sender:&DatabaseSender, on_device:bool) -> Result<FSElementID, ProxFilesystemError> {
         let element_id = self.id_counter;
         self.id_counter += 1;
-        let element = if parent_path.get_device() == 0 && on_device {
+        let element: FilesystemElement = if parent_path.get_device() == 0 && on_device {
             create_on_device(element_id, Some(self.get_at(parent_path, access_mode)?.id), element_type, self.path_on_device(parent_path)?, name, permissions)?
         }
-        else {
+        else if on_device {
             todo!("support creating files on non-server devices")
+        }
+        else {
+            FilesystemElement { created_on: Utc::now(), id: element_id, parent:Some(self.get_at(parent_path, access_mode)?.id), element_type, name, permissions }
         };
         self.get_at_mut(parent_path, access_mode)?.get_children_mut().unwrap().push(element_id);
         self.device_filesystems.get_mut(&parent_path.get_device()).unwrap().elements.insert(element_id, element.clone());
