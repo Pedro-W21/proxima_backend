@@ -259,7 +259,7 @@ impl Filesystem {
         let element_id = self.id_counter;
         self.id_counter += 1;
         let element = if parent_path.get_device() == 0 {
-            create_on_device(element_id, parent_path.get_on_device_path().last().cloned(), element_type, self.path_on_device(parent_path)?, name, permissions)?
+            create_on_device(element_id, Some(self.get_at(parent_path, access_mode)?.id), element_type, self.path_on_device(parent_path)?, name, permissions)?
         }
         else {
             todo!("support creating files on non-server devices")
