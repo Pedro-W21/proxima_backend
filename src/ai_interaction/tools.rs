@@ -448,10 +448,12 @@ impl ProximaTool {
             },
             Self::Time => {
                 let (output_str, new_data) = time_tool(action.to_string(), data, input)?;
-                Ok((generate_call_output("Jobs".to_string(), action.to_string(), output_str), new_data))
+                Ok((generate_call_output("Time".to_string(), action.to_string(), output_str), new_data))
             },
             Self::Filesystem => {
-                Err(ProximaToolCallError::Parsing(ToolParsingError::NotAnElement))
+                let input_lines:Vec<String> = input.trim().lines().map(|line| {line.trim().to_string()}).collect();
+                let (output_str, new_data) = filesystem_tool(action.to_string(), input_lines, runtime_tool_data.filesystem_sender.clone(), access_mode_id, data.unwrap().get_working_directory().clone()).await?;
+                Ok((generate_call_output("Filesystem".to_string(), action.to_string(), output_str), new_data))
             }
         }
     }
@@ -1486,6 +1488,12 @@ impl ProximaToolData {
         match self {
             Self::Agent(data) => data,
             _ => panic!("Not agent tool")
+        }
+    }
+    pub fn get_working_directory(&self) -> &String {
+match self {
+            Self::Filesystem { working_directory } => working_directory,
+            _ => panic!("Not filesystem tool")
         }
     }
 }
