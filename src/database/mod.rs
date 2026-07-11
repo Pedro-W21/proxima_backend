@@ -14,7 +14,7 @@ use sha3::{Digest, Sha3_256};
 use tags::{Tag, TagID, Tags};
 use user::{PersonalInformation, UserData};
 
-use crate::{ai_interaction::create_prompt::AgentPrompt, database::{access_modes::AMSetting, configuration::{ChatConfigID, ChatConfiguration, ChatConfigurations}, context::WholeContext, filesystem::{FSElementID, Filesystem, FilesystemElement, FilesystemUpdate}, jobs::{Job, JobID, Jobs}, loading_saving::{load_from_disk, save_to_disk}, media::{Base64EncodedString, Media, MediaHash, MediaStorage}, memories::{MemReqMax, Memories, Memory, MemoryID, MemoryRequest}, notifications::{Notification, NotificationID, Notifications}, user::UserStats}};
+use crate::{ai_interaction::create_prompt::AgentPrompt, database::{access_modes::AMSetting, configuration::{ChatConfigID, ChatConfiguration, ChatConfigurations}, context::WholeContext, filesystem::{FSElementID, Filesystem, FilesystemElement, FilesystemUpdate, ProximaPath}, jobs::{Job, JobID, Jobs}, loading_saving::{load_from_disk, save_to_disk}, media::{Base64EncodedString, Media, MediaHash, MediaStorage}, memories::{MemReqMax, Memories, Memory, MemoryID, MemoryRequest}, notifications::{Notification, NotificationID, Notifications}, user::UserStats}};
 
 pub mod tags;
 pub mod folders;
@@ -112,8 +112,8 @@ impl ProxDatabase {
             else {
                 DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(id)) }
             },
-            DatabaseItemID::Filesystem(elementid) => if let Ok(element) = self.filesystem.get_in_all_devices(elementid) {
-                DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Filesystem(element.clone()))}
+            DatabaseItemID::Filesystem(elementid) => if let Ok(element) = self.filesystem.get_at(&elementid, 0) {
+                DatabaseReply { variant: DatabaseReplyVariant::ReturnedItem(DatabaseItem::Filesystem(elementid,element.clone()))}
             }
             else {
                 DatabaseReply { variant: DatabaseReplyVariant::Error(DatabaseError::ItemNotFound(id)) }
@@ -182,7 +182,7 @@ impl ProxDatabase {
             DatabaseItem::UserStats(user_stats) => {self.personal_info.user_stats = user_stats; (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::UserStats) }, DatabaseItemID::UserStats)},
             DatabaseItem::Notification(notif) => {let id = self.notifications.add_notification(notif); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Notification(id)) }, DatabaseItemID::Notification(id))},
             DatabaseItem::Job(job) => {let id = self.jobs.add_job(job); (DatabaseReply { variant: DatabaseReplyVariant::AddedItem(DatabaseItemID::Job(id)) }, DatabaseItemID::Job(id))},
-            DatabaseItem::Filesystem(element) => {(DatabaseReply {variant:DatabaseReplyVariant::Error(DatabaseError::ItemCannotBeAdded(DatabaseItemID::Filesystem(element.get_id())))}, DatabaseItemID::Filesystem(element.get_id()))}
+            DatabaseItem::Filesystem(path, element) => {(DatabaseReply {variant:DatabaseReplyVariant::Error(DatabaseError::ItemCannotBeAdded(DatabaseItemID::Filesystem(path.clone())))}, DatabaseItemID::Filesystem(path.clone()))}
         }
     }
     pub fn remove_request(&mut self, id:DatabaseItemID) -> DatabaseReply {
@@ -216,7 +216,7 @@ pub enum DatabaseItem {
     Media(Media, Base64EncodedString),
     Memory(Memory, String),
     Notification(Notification),
-    Filesystem(FilesystemElement)
+    Filesystem(ProximaPath, FilesystemElement)
 }
 
 impl DatabaseItem {
@@ -233,7 +233,7 @@ impl DatabaseItem {
             Self::Memory(memory, _) => DatabaseItemID::Memory(memory.id),
             Self::Notification(notif) => DatabaseItemID::Notification(notif.id),
             Self::Job(job) => DatabaseItemID::Job(job.id),
-            Self::Filesystem(element) => DatabaseItemID::Filesystem(element.get_id())
+            Self::Filesystem(path, element) => DatabaseItemID::Filesystem(path.clone())
         }
     }
     
@@ -275,8 +275,8 @@ impl DatabaseItem {
                 DatabaseItemID::Job(id) => job.id = id,
                 _ => panic!("wrong kind of ID")
             },
-            Self::Filesystem(element) => match new_id {
-                DatabaseItemID::Filesystem(id) => element.id = id,
+            Self::Filesystem(path, element) => match new_id {
+                DatabaseItemID::Filesystem(id) => element.id = id.last(),
                 _ => panic!("wrong kind of ID")
             },
             Self::UserData(user_data) => (),
@@ -290,7 +290,7 @@ impl DatabaseItem {
 pub enum DatabaseItemID {
     Device(DeviceID),
     Chat(ChatID),
-    Filesystem(FSElementID),
+    Filesystem(ProximaPath),
     Tag(TagID),
     AccessMode(AccessModeID),
     UserData,
@@ -325,7 +325,7 @@ impl Step for DatabaseItemID {
             DatabaseItemID::Job(id) => *id,
             DatabaseItemID::UserData => 1,
             DatabaseItemID::UserStats => 1,
-            DatabaseItemID::Filesystem(id) => *id,
+            DatabaseItemID::Filesystem(id) => id.get_device(),
         };
         let end_id = match end {
             DatabaseItemID::AccessMode(id) => *id,
@@ -339,7 +339,7 @@ impl Step for DatabaseItemID {
             DatabaseItemID::Media(media) => 0,
             DatabaseItemID::UserData => 0,
             DatabaseItemID::UserStats => 0,
-            DatabaseItemID::Filesystem(id) => *id,
+            DatabaseItemID::Filesystem(id) => id.get_device(),
         };
         if start_id > end_id {
             (usize::MAX, None)

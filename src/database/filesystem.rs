@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::database::{DatabaseRequest, DatabaseRequestVariant, DatabaseSender, InternalDBReq, ToolRequest, access_modes::AccessModeID, devices::DeviceID};
 
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord, Debug)]
 pub struct ProximaPath {
     device:DeviceID,
     on_device_path:Vec<FSElementID>,
@@ -36,6 +36,9 @@ impl ProximaPath {
         else {
             panic!("Getting parent of empty path")
         }
+    }
+    pub fn last(&self) -> usize {
+        self.on_device_path.last().cloned().unwrap_or(self.device)
     }
 }
 
