@@ -312,6 +312,12 @@ impl DatabaseItemID {
 }
 
 impl Step for DatabaseItemID {
+    fn forward_overflowing(_: Self, _: usize) -> (Self, bool) {
+        todo!()
+    }
+    fn backward_overflowing(_: Self, _: usize) -> (Self, bool) {
+        todo!()
+    }
     fn steps_between(start: &Self, end: &Self) -> (usize, Option<usize>) {
         let start_id = match start {
             DatabaseItemID::AccessMode(id) => *id,
