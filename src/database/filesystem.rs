@@ -182,7 +182,7 @@ impl Filesystem {
                                     continue 'parsing;
                                 }
                             }
-                            let new_element = self.create(&new_path, part.to_string(), if i == parts.len() - 1 {creation.clone()} else {FSElementType::Folder { children: Vec::with_capacity(4) }}, FSPermissions::new_with_am_specific(Permissions::new(true, false), access_mode, specific_perms.clone()), access_mode, update_sender)?;
+                            let new_element = self.create(&new_path, part.to_string(), if i == parts.len() - 1 {creation.clone()} else {FSElementType::Folder { children: Vec::with_capacity(4) }}, FSPermissions::new_with_am_specific(Permissions::new(true, false), access_mode, specific_perms.clone()), access_mode, update_sender, true)?;
                             children.push(new_element);
                             self.device_filesystems.get_mut(&new_path.device).unwrap().elements.insert(elem, element);
                             new_path.on_device_path.push(new_element);
@@ -255,10 +255,10 @@ impl Filesystem {
         }
         Ok(final_path)
     }
-    pub fn create(&mut self, parent_path:&ProximaPath, name:String, element_type:FSElementType, permissions:FSPermissions, access_mode:AccessModeID, update_sender:&DatabaseSender) -> Result<FSElementID, ProxFilesystemError> {
+    pub fn create(&mut self, parent_path:&ProximaPath, name:String, element_type:FSElementType, permissions:FSPermissions, access_mode:AccessModeID, update_sender:&DatabaseSender, on_device:bool) -> Result<FSElementID, ProxFilesystemError> {
         let element_id = self.id_counter;
         self.id_counter += 1;
-        let element = if parent_path.get_device() == 0 {
+        let element = if parent_path.get_device() == 0 && on_device {
             create_on_device(element_id, Some(self.get_at(parent_path, access_mode)?.id), element_type, self.path_on_device(parent_path)?, name, permissions)?
         }
         else {
@@ -284,7 +284,7 @@ impl Filesystem {
         let mut list = FSList {device:target.get_device(), parent:self.get_at(target,access_mode)?.id, elements:Vec::with_capacity(device_list.len())};
         for child_elem in device_list {
             let element_id = if !server_list.contains_key(&child_elem) {
-                self.create(target, child_elem.0, child_elem.1, FSPermissions::new_with_am_specific(Permissions::new(true, false), access_mode, Permissions::new(true, true)), access_mode, update_sender)?
+                self.create(target, child_elem.0, child_elem.1, FSPermissions::new_with_am_specific(Permissions::new(true, false), access_mode, Permissions::new(true, true)), access_mode, update_sender, false)?
             }
             else {
                 *server_list.get(&child_elem).unwrap()
@@ -395,7 +395,7 @@ impl Filesystem {
                         Err(ProxFilesystemError::ElementAlreadyExists { name: source_elem.name.clone() })
                     }
                     else if source.get_device() == 0 {
-                        let new_id = self.create(destination, source_elem.name.clone(), FSElementType::File, source_elem.permissions.clone(), access_mode, update_sender)?;
+                        let new_id = self.create(destination, source_elem.name.clone(), FSElementType::File, source_elem.permissions.clone(), access_mode, update_sender, true)?;
                         new_ids.push(new_id);
                         copy_file_on_device(self.path_on_device(source)?, self.path_on_device(&destination.join(new_id))?)?;
                         Ok(new_ids)
@@ -417,7 +417,7 @@ impl Filesystem {
                         else {
                             for child in source_children {
                                 let elem = self.get_at(&source.join(*child), access_mode)?;
-                                let new_id = self.create(destination, elem.name.clone(), elem.element_type.clone_empty(), elem.permissions.clone(), access_mode, update_sender)?;
+                                let new_id = self.create(destination, elem.name.clone(), elem.element_type.clone_empty(), elem.permissions.clone(), access_mode, update_sender, true)?;
                                 new_ids.push(new_id);
                                 let mut child_new_ids = self.copy_same_device(&source.join(*child), &destination.join(new_id), access_mode, update_sender)?;
                                 new_ids.append(&mut child_new_ids);
@@ -446,7 +446,7 @@ impl Filesystem {
                         Err(ProxFilesystemError::ElementAlreadyExists { name: source_elem.name.clone() })
                     }
                     else {
-                        let new_id = self.create(destination, source_elem.name.clone(), FSElementType::File, source_elem.permissions.clone(), access_mode, update_sender)?;
+                        let new_id = self.create(destination, source_elem.name.clone(), FSElementType::File, source_elem.permissions.clone(), access_mode, update_sender, true)?;
                         new_ids.push(new_id);
                         let data = self.read(source, ReadOptions { line_numbering: false }, access_mode, update_sender)?.get_binary().unwrap();
                         self.write(destination, data, access_mode)?;
@@ -466,7 +466,7 @@ impl Filesystem {
                         else {
                             for child in source_children {
                                 let elem = self.get_at(&source.join(*child), access_mode)?;
-                                let new_id = self.create(destination, elem.name.clone(), elem.element_type.clone_empty(), elem.permissions.clone(), access_mode, update_sender)?;
+                                let new_id = self.create(destination, elem.name.clone(), elem.element_type.clone_empty(), elem.permissions.clone(), access_mode, update_sender, true)?;
                                 new_ids.push(new_id);
                                 let mut child_new_ids = self.copy_different_devices(&source.join(*child), &destination.join(new_id), access_mode, update_sender)?;
                                 new_ids.append(&mut child_new_ids);
@@ -891,7 +891,7 @@ pub fn filesystem_thread(mut filesystem:Filesystem, db_updates:DatabaseSender) -
                         FilesystemRequestVariant::Create { name, element_type, permissions } => {
                             filesystem.resolve_existing_path(req.request.filesystem_path.clone(), req.request.working_directory.as_ref()).and_then(
                                 |parent_path| {
-                                    filesystem.create(&parent_path, name, element_type, permissions, req.request.access_mode, &db_updates).map(
+                                    filesystem.create(&parent_path, name, element_type, permissions, req.request.access_mode, &db_updates, true).map(
                                         |write| {
                                             FilesystemResponse::Success
                     
