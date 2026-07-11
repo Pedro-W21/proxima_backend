@@ -746,7 +746,7 @@ pub fn delete_on_device(path_on_device:String) -> Result<(), ProxFilesystemError
 
 pub fn write_on_device(path_on_device:String, content:Vec<u8>) -> Result<(), ProxFilesystemError> {
     let local_target_path = PathBuf::from_str(&path_on_device).unwrap();
-    let mut file = fs::File::open(local_target_path).map_err(|err| {ProxFilesystemError::LocalIOError { error: err }})?;
+    let mut file = fs::File::create(local_target_path).map_err(|err| {ProxFilesystemError::LocalIOError { error: err }})?;
     file.write_all(&content).map_err(|err| {ProxFilesystemError::LocalIOError { error: err }})
 }
 
