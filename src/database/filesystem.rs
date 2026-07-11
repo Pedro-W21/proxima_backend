@@ -76,7 +76,7 @@ impl Filesystem {
                     0,
                     DeviceFilesystem::new(
                         FilesystemElement { created_on: Utc::now(), id: 0, parent: None, element_type: FSElementType::Folder { children: Vec::with_capacity(16) }, permissions: FSPermissions::new(Permissions::new(true, true)), name: "server_root".to_string() },
-                        root_path.unwrap_or("~/.proxima".to_string())
+                        root_path.unwrap_or("/root/.proxima".to_string())
                     )
                 )
             ]

@@ -1278,6 +1278,7 @@ async fn filesystem_tool(mode:String, input_lines:Vec<String>, filesystem_connec
         "move" => filesystem_move_copy(input_lines, filesystem_connection, access_mode_id, working_directory, false).await,
         "copy" => filesystem_move_copy(input_lines, filesystem_connection, access_mode_id, working_directory, true).await,
         "cd" => filesystem_cd(input_lines, filesystem_connection, access_mode_id, working_directory).await,
+        "create" => filesystem_create(input_lines, filesystem_connection, access_mode_id, working_directory).await,
         _ => panic!("impossible")
     }
 }
@@ -1474,7 +1475,7 @@ impl ProximaToolData {
                     _ => ContextData::Text(format!("")),
                 }
             },
-            Self::Filesystem { working_directory } => ContextData::Text(format!("<filesystem>\n{}\nCURRENT_DIRECTORY_CONTENTS\n</filesystem>\n", working_directory.clone(), ))
+            Self::Filesystem { working_directory } => ContextData::Text(format!(""))
         }
     }
     pub fn get_local_mem_data(&self) -> HashMap<String, String> {
