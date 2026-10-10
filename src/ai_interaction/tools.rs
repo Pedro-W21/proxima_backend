@@ -5,7 +5,7 @@ use html_parser::{Dom, Element, Node};
 use rand::{Rng, rng};
 use serde::{Deserialize, Serialize};
 
-use crate::{ai_interaction::{AiEndpointSender, endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}}, database::{DatabaseError, DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, ToolRequest, access_modes::AccessModeID, chats::{Chat, SessionType}, configuration::{ChatConfigID, ChatConfiguration, ChatSetting}, context::{ContextData, ContextPart, ContextPosition, ToolPart, ToolPartKind, WholeContext}, filesystem::{ExternalFSRead, FSElementType, FSPermissions, FilesystemResponse, FullFilesystemRequest, Permissions, ProxFilesystemError, ReadOptions}, jobs::{Job, JobID, JobRepeat, JobTiming, JobType}, memories::{MemReqMax, Memory, MemoryKind, MemoryRequest}}};
+use crate::{ai_interaction::{AiEndpointSender, endpoint_api::{EndpointRequest, EndpointRequestVariant, EndpointResponseVariant}}, database::{DatabaseError, DatabaseItem, DatabaseItemID, DatabaseReply, DatabaseReplyVariant, DatabaseRequest, DatabaseRequestVariant, DatabaseSender, ToolRequest, access_modes::AccessModeID, chats::{Chat, SessionType}, configuration::{ChatConfigID, ChatConfiguration, ChatSetting}, context::{ContextData, ContextPart, ContextPosition, ToolPart, ToolPartKind, WholeContext}, filesystem::{ExternalFSRead, FSElementType, FSPermissions, FilesystemRequestVariant, FilesystemResponse, FullFilesystemRequest, Permissions, ProxFilesystemError, ReadOptions}, jobs::{Job, JobID, JobRepeat, JobTiming, JobType}, memories::{MemReqMax, Memory, MemoryKind, MemoryRequest}}};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Tools {
@@ -130,7 +130,7 @@ impl Tools {
                         },
                         _ => return Err(ProximaToolCallError::Parsing(ToolParsingError::NotAnElement).generate_error_output(tool_name, action))
                     }
-                    return tool.respond_to(action.clone(), inputs, self.tool_data.get(&tool), database_connection, ai_sender, runtime_tool_data, access_mode_id, config_id).await.map(|(context, new_data)| {(context, 
+                    return tool.respond_to(action.clone(), inputs, self.tool_data.get(&tool), database_connection, ai_sender, runtime_tool_data, access_mode_id, config_id, &self.used_tools).await.map(|(context, new_data)| {(context, 
                     match new_data {
                         Some(new_data) => {
                             let mut new_self = self.clone();
@@ -217,7 +217,7 @@ impl ProximaTool {
                 _ => false
             },
             Self::Python => match action.trim() {
-                "run" | "eval" => true,
+                "run" | "eval" | "execute_file" => true,
                 _ => false,
             },
             Self::Agent => match action.trim() {
@@ -275,7 +275,7 @@ impl ProximaTool {
             _ => None
         }
     }
-    pub async fn respond_to(&self, action:String, input:String, data:Option<&ProximaToolData>, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData, access_mode_id:AccessModeID, config_id:ChatConfigID) -> Result<(ContextData, Option<ProximaToolData>), ProximaToolCallError> {
+    pub async fn respond_to(&self, action:String, input:String, data:Option<&ProximaToolData>, database_connection:DatabaseSender, ai_sender:AiEndpointSender, runtime_tool_data:&RuntimeToolData, access_mode_id:AccessModeID, config_id:ChatConfigID, toolset:&Vec<ProximaTool>) -> Result<(ContextData, Option<ProximaToolData>), ProximaToolCallError> {
         match self {
             Self::LocalMemory => {
                 let mut new_data = data.unwrap().get_local_mem_data();
@@ -420,7 +420,7 @@ impl ProximaTool {
             },
             Self::Python => {
                 if let Some((ip, port)) = runtime_tool_data.python_server {
-                    let output_str = python_tool(action.to_string(), input, SocketAddr::V4((SocketAddrV4::new(ip, port))))?;
+                    let output_str = python_tool(action.to_string(), input, SocketAddr::V4((SocketAddrV4::new(ip, port))), if toolset.contains(&ProximaTool::Filesystem) { Some(runtime_tool_data.filesystem_sender.clone()) } else {None}, access_mode_id).await?;
                     Ok((generate_call_output("Python".to_string(), action.to_string(), output_str), None))
                 }
                 else {
@@ -1043,13 +1043,27 @@ pub async fn bad_async_recv<T>(recv:Receiver<T>) -> T {
     recv.recv().unwrap()
 }
 
-pub fn python_tool(mode:String, data:String, addr:SocketAddr) -> Result<String, ProximaToolCallError> {
+pub async fn python_tool(mode:String, data:String, addr:SocketAddr, filesystem_connection:Option<Sender<FullFilesystemRequest>>, access_mode_id:AccessModeID) -> Result<String, ProximaToolCallError> {
     println!("Starting Python tool call");
     match TcpStream::connect_timeout(&addr, Duration::from_millis(5000)) {
         Ok(mut stream) => {
             println!("Connected to the Python server for a tool call");
             stream.set_read_timeout(Some(Duration::from_millis(15000))).unwrap();
             stream.set_write_timeout(Some(Duration::from_millis(15000))).unwrap();
+            let data = match mode.trim() {
+                "execute_file" if let Some(filesystem_sender) = filesystem_connection && data.trim().lines().collect::<Vec<&str>>().len() == 1 => {
+                    let (req, recv) = FullFilesystemRequest::new(data.trim().to_string(), FilesystemRequestVariant::ResolveToPythonPath, access_mode_id, None);
+                    filesystem_sender.send(req).unwrap();
+                    let response = bad_async_recv(recv).await.map_err(|err| {ProximaToolCallError::Filesystem(format!("{err:?}"))})?;
+                    if let FilesystemResponse::Resolved(python_path) = response {
+                        python_path
+                    }
+                    else {
+                        return Err(ProximaToolCallError::Filesystem("Couldn't resolve filesystem path for python file to execute".to_string()))
+                    }
+                },
+                _ => data
+            };
             let mut message = format!("{}\n{}", mode.trim(), data).as_bytes().iter().map(|utf8| {*utf8}).collect::<Vec<u8>>();
             message.push(255);
             match stream.write_all(&message) {

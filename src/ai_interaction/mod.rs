@@ -74,7 +74,7 @@ impl<B:BackendAPI> RequestHandler<B> {
                 match chat_settings {
                     Some(settings) => {
                         println!("in settings response cycle");
-
+                        
                         if let Some(tools) = settings.get_tools() {
                             if tools.has_automatic_memory() {
                                 update_auto_memory(&mut whole_context, self.database_sender.clone(), access_mode).await;
@@ -463,6 +463,7 @@ pub async fn handle_request<B:BackendAPI + Send + 'static>(db_sender:DatabaseSen
     println!("Handling request !");
     tokio::spawn(async move {
         println!("Inside task !");
+        db_sender.send_prio(DatabaseRequest::new(DatabaseRequestVariant::ToolRequest(ToolRequest::AddInFlight(request.variant.clone())), None).0);
         match request.variant.clone() {
             EndpointRequestVariant::Continue => (),
             EndpointRequestVariant::RespondToFullPrompt { whole_context, streaming, session_type, chat_settings, chat_id, access_mode} => {
@@ -470,10 +471,10 @@ pub async fn handle_request<B:BackendAPI + Send + 'static>(db_sender:DatabaseSen
                 let response = request.response_tunnel.clone();
                 let request = request.variant.clone();
                 let value = if streaming {
-                    RequestHandler::new(db_sender, request, response.clone(), B::new(backend_conn), streaming, self_sender, runtime_tool_data).streaming_respond().await
+                    RequestHandler::new(db_sender.clone(), request.clone(), response.clone(), B::new(backend_conn), streaming, self_sender, runtime_tool_data).streaming_respond().await
                 }
                 else {
-                    RequestHandler::new(db_sender, request, response.clone(), B::new(backend_conn), streaming, self_sender, runtime_tool_data).respond().await
+                    RequestHandler::new(db_sender.clone(), request.clone(), response.clone(), B::new(backend_conn), streaming, self_sender, runtime_tool_data).respond().await
                 };
                 value.unwrap_or_else(|error| {
 
@@ -483,6 +484,7 @@ pub async fn handle_request<B:BackendAPI + Send + 'static>(db_sender:DatabaseSen
                         _ => panic!("Other types of errors not possible here"),
                     }
                 });
+                db_sender.send_prio(DatabaseRequest::new(DatabaseRequestVariant::ToolRequest(ToolRequest::RemoveInFlight(request.clone())), None).0);
             }
         }
     });

@@ -1,4 +1,4 @@
-use std::{env, io::{Read, Write}, net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream}, process::Command, sync::{Arc, atomic::{AtomicUsize, Ordering}, mpsc::{Receiver, RecvTimeoutError, Sender, channel}}, thread, time::{Duration, Instant}};
+use std::{env, io::{Read, Write}, net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream}, path::PathBuf, process::Command, str::FromStr, sync::{Arc, atomic::{AtomicUsize, Ordering}, mpsc::{Receiver, RecvTimeoutError, Sender, channel}}, thread, time::{Duration, Instant}};
 
 fn main() {
     let (s, r) = channel();
@@ -20,16 +20,19 @@ fn main() {
     listener.listening_loop();
 }
 
+#[derive(Clone)]
 pub enum PythonToolRequest {
     Eval(String),
-    Run(String)
+    Run(String),
+    ExecuteFile(String),
 }
 
 impl PythonToolRequest {
     pub fn to_string(&self) -> String {
         match self {
             PythonToolRequest::Run(program) => format!("run\n{program}"),
-            PythonToolRequest::Eval(expression) => format!("eval\n{expression}")
+            PythonToolRequest::Eval(expression) => format!("eval\n{expression}"),
+            PythonToolRequest::ExecuteFile(path_to_file) => format!("execute_file\n{path_to_file}"),
         }
     }
 }
@@ -61,7 +64,13 @@ pub struct InFlightExecution {
 impl InFlightExecution {
     pub fn new(mut proxima_stream:(TcpStream, SocketAddr), request:PythonToolRequest, thread_number:usize, port:u16, finish_sender:Sender<u16>) -> Result<Self, ()> {
         println!("Creating execution");
-        let command = Command::new("docker").args(vec!["run", "--network=bridge", "-d"/*, "--name", &format!("proxima_python_{}", thread_number)*/, "-p", &format!("0.0.0.0:{port}:4096/tcp"), "proxima_python_executor:any" ]).output();
+        let command = match request.clone() {
+            PythonToolRequest::ExecuteFile(path_to_file) => {
+                let file_parent = PathBuf::from_str(&path_to_file).unwrap().parent().unwrap().to_string_lossy().to_string();
+                Command::new("docker").args(vec!["run", "--volume", &format!("{file_parent}:/app"), "--network=bridge", "-d"/*, "--name", &format!("proxima_python_{}", thread_number)*/, "-p", &format!("0.0.0.0:{port}:4096/tcp"), "proxima_python_executor:any" ]).output()
+            },
+            _ => Command::new("docker").args(vec!["run", "--network=bridge", "-d"/*, "--name", &format!("proxima_python_{}", thread_number)*/, "-p", &format!("0.0.0.0:{port}:4096/tcp"), "proxima_python_executor:any" ]).output() 
+        };
         match command {
             Ok(output) => match String::from_utf8(output.stdout) {
                 Ok(id) => {

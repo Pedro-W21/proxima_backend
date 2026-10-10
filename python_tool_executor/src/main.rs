@@ -1,6 +1,6 @@
-use std::{ffi::{CStr, CString}, io::{Read, Write}, net::{Ipv4Addr, TcpListener, TcpStream}, sync::mpsc::{Receiver, Sender, channel}, thread::{self, sleep}, time::{Duration, Instant}};
+use std::{ffi::{CStr, CString}, fs::read, io::{Read, Write}, net::{Ipv4Addr, TcpListener, TcpStream}, path::PathBuf, sync::mpsc::{Receiver, Sender, channel}, thread::{self, sleep}, time::{Duration, Instant}};
 
-use pyo3::{IntoPyObject, Python, pyclass, pymethods, types::PyAnyMethods};
+use pyo3::{IntoPyObject, Python, pyclass, pymethods, types::{PyAnyMethods, PyModule}};
 
 pub fn logging_thread(mut stream:TcpStream, chunk_recv:Receiver<String>) {
     while let Ok(chunk) = chunk_recv.recv_timeout(Duration::from_millis(15000)) {
@@ -67,18 +67,35 @@ fn main() {
             },
             "run" => if lines.len() >= 2 {
                 let mut final_program = lines.iter().skip(1).map(|line| {format!("{}\n", line)}).collect::<Vec<String>>().concat();
-
+                
                 let program = CString::new(final_program.as_str()).unwrap();
                 match py.run(program.as_c_str(), None, None) {
                     Ok(ran) => (),//s2.send(format!("Ran program successfully")).unwrap(),
                     Err(error) => s2.send(format!("Got error : {}", error)).unwrap()
                 }
             },
+            "execute_file" => if lines.len() >= 2 {
+                let file = lines[1].split("/").last().unwrap();
+                match read(PathBuf::from(format!("/app/{}", file))) {
+                    Ok(file) => {
+                        match String::from_utf8(file) {
+                            Ok(program) => {
+                                let code = CString::new(program.as_str()).unwrap();
+                                let file_name = CString::new(lines[1]).unwrap();
+                                let module_name = CString::new(lines[1].trim_end_matches(".py")).unwrap();
+                            },
+                            Err(error) => s2.send(format!("Got decoding error when reading file : {}", error)).unwrap()
+                        }
+                    },
+                    Err(error) => s2.send(format!("Got I/O error when reading file : {}", error)).unwrap()
+                }
+                // PyModule::from_code(py, code.as_c_str(), file_name.as_c_str(), module_name.as_c_str()).unwrap();
+            }
             _ => ()
         }
     });
     // s2.send(format!("AFTER ATTACH")).unwrap();
-    thread::sleep(Duration::from_millis(15000));
+    thread::sleep(Duration::from_millis(1500000));
 }
 
 pub fn write_proxima_string_to_stream(stream:&mut TcpStream, message_string:String) {

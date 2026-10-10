@@ -14,7 +14,7 @@ use sha3::{Digest, Sha3_256};
 use tags::{Tag, TagID, Tags};
 use user::{PersonalInformation, UserData};
 
-use crate::{ai_interaction::create_prompt::AgentPrompt, database::{access_modes::AMSetting, configuration::{ChatConfigID, ChatConfiguration, ChatConfigurations}, context::WholeContext, filesystem::{FSElementID, Filesystem, FilesystemElement, FilesystemUpdate, ProximaPath}, jobs::{Job, JobID, Jobs}, loading_saving::{load_from_disk, save_to_disk}, media::{Base64EncodedString, Media, MediaHash, MediaStorage}, memories::{MemReqMax, Memories, Memory, MemoryID, MemoryRequest}, notifications::{Notification, NotificationID, Notifications}, user::UserStats}};
+use crate::{ai_interaction::{create_prompt::AgentPrompt, endpoint_api::EndpointRequestVariant}, database::{access_modes::AMSetting, configuration::{ChatConfigID, ChatConfiguration, ChatConfigurations}, context::WholeContext, filesystem::{FSElementID, Filesystem, FilesystemElement, FilesystemUpdate, ProximaPath}, jobs::{Job, JobID, Jobs}, loading_saving::{load_from_disk, save_to_disk}, media::{Base64EncodedString, Media, MediaHash, MediaStorage}, memories::{MemReqMax, Memories, Memory, MemoryID, MemoryRequest}, notifications::{Notification, NotificationID, Notifications}, user::UserStats}};
 
 pub mod tags;
 pub mod folders;
@@ -422,7 +422,9 @@ pub enum ToolRequest {
     GetAutoMemoryFor(AccessModeID, usize),
     GetMediaWithoutData(MediaHash),
     UpdateAccessModeSettings(AccessModeID, HashMap<String, AMSetting>),
-    FilesystemUpdate(FilesystemUpdate)
+    FilesystemUpdate(FilesystemUpdate),
+    AddInFlight(EndpointRequestVariant),
+    RemoveInFlight(EndpointRequestVariant)
 }
 
 pub enum InternalDBReq {
@@ -886,6 +888,14 @@ impl DatabaseHandler {
             },
             ToolRequest::FilesystemUpdate(update) => {
                 self.database.filesystem.apply_update(update);
+                Ok(())
+            },
+            ToolRequest::AddInFlight(req) => {
+                self.database.chats.add_in_flight(req);
+                Ok(())
+            },
+            ToolRequest::RemoveInFlight(req) => {
+                self.database.chats.remove_in_flight(req);
                 Ok(())
             }
         }

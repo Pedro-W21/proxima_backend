@@ -1,9 +1,9 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::{ai_interaction::tools::{ProximaTool, ProximaToolData}, database::{configuration::{ChatConfigID, ChatConfiguration}, context::ContextPosition}};
+use crate::{ai_interaction::{endpoint_api::EndpointRequestVariant, tools::{ProximaTool, ProximaToolData}}, database::{configuration::{ChatConfigID, ChatConfiguration}, context::ContextPosition}};
 
 use super::{access_modes::AccessModeID, context::{ContextPart, WholeContext}, devices::DeviceID, tags::TagID};
 
@@ -115,12 +115,29 @@ impl Chat {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Chats {
     all_chats:HashMap<ChatID, Chat>,
-    pub latest_id:ChatID
+    pub latest_id:ChatID,
+    in_flight:Vec<EndpointRequestVariant>
 }
 
 impl Chats {
     pub fn new() -> Self {
-        Self { all_chats:HashMap::with_capacity(4096), latest_id:0 }
+        Self { all_chats:HashMap::with_capacity(4096), latest_id:0, in_flight:Vec::with_capacity(8) }
+    }
+    pub fn add_in_flight(&mut self, req:EndpointRequestVariant) {
+        if !self.in_flight.contains(&req) {
+            self.in_flight.push(req);
+        }
+    }
+    pub fn remove_in_flight(&mut self, req:EndpointRequestVariant) {
+        match self.in_flight.iter().enumerate().find(|(i, in_req)| { *in_req == &req }) {
+            Some((index, req)) => {
+                self.in_flight.remove(index);
+            },
+            None => ()
+        }
+    }
+    pub fn get_in_flight(&self) -> Vec<EndpointRequestVariant> {
+        self.in_flight.clone()
     }
     pub fn add_context_part_to(&mut self, context_part:ContextPart, chat_id:ChatID) {
         match self.all_chats.get_mut(&chat_id) {

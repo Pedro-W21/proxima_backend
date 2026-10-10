@@ -24,7 +24,7 @@ impl EndpointRequest {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum EndpointRequestVariant {
     RespondToFullPrompt{whole_context:WholeContext, streaming:bool, session_type:SessionType, chat_settings:Option<ChatConfiguration>, chat_id:Option<ChatID>, access_mode:AccessModeID},
     Continue,
